@@ -1,6 +1,8 @@
 # Starshine for AR glasses
 
-A home screen for Android TV boxes made for AR glasses such as Rokid, plus a [Pinokio](https://pinokio.co) toolkit to install and manage it from your PC. On these glasses black is see-through, so everything is glowing elements on true black.
+**An all-in-one launcher with visual and audio meditation.** Layered animated visuals, generated soundscapes and frequencies, a home screen and built-in apps, in one place. It's for AR glasses, for your TV, and for your hobbies.
+
+Starshine runs on Android TV boxes and comes with a [Pinokio](https://pinokio.co) toolkit to install and manage it from your PC. On AR glasses such as Rokid, black is see-through, so everything is glowing elements on true black.
 
 **⭐ If you own Rokid or other AR glasses and this is useful to you, please star the repo.** It's the best way to help other owners find it.
 
@@ -16,7 +18,7 @@ A home screen for Android TV boxes made for AR glasses such as Rokid, plus a [Pi
 - Save, edit and delete your own scenes, and export a video that VLC can play
 - 540p, 720p or 1080p rendering
 
-![Building a scene](docs/images/builder.jpg)
+![The Backgrounds workspace](docs/images/workspace.jpg)
 
 **Sound**
 - Audio moods: rain and ocean, generated live in stereo, never looping
@@ -38,6 +40,15 @@ A home screen for Android TV boxes made for AR glasses such as Rokid, plus a [Pi
 - Drone tab: live video from KY UFO Wi-Fi drones, view only. Still in development and not yet working reliably.
 
 See **[HELP.md](HELP.md)** for how everything works. The app shows the same file.
+
+## Current status
+
+This is an early release, developed and tested on one Rokid Station. Known to be unfinished:
+
+- **Drone video** doesn't work yet
+- **AOW M5 air mouse:** the OK button fix is still being confirmed
+- **Video export, spoken voice commands and sound reaction to other apps' audio** haven't been fully tested
+- **Visual Meditation** journeys, a full video player and web video takeover are planned, not built
 
 ## Requirements
 

@@ -51,13 +51,9 @@ The Backgrounds tab is a workspace. The monitor previews the scene you're browsi
 
 ![Inner eye](docs/images/scene-iris.jpg)
 
-![Hologram](docs/images/scene-hologram.jpg)
-
 ### Building a scene
 
 Each layer shows as a live tile under the preview, from left (back) to right (front). Up to 8 layers can be stacked. Opening a scene puts you on its first layer, and the panel shows the settings of the layer you're on.
-
-![The scene builder](docs/images/builder.jpg)
 
 On a layer tile:
 

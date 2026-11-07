@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Starshine Launcher</title>
+<style>
+  :root{
+    --bg:#000; --fg:#e8f4ff; --dim:#7f93a8; --glow:#5ee7ff; --glow2:#b18cff;
+    --tile:rgba(10,20,30,.55); --ring:rgba(94,231,255,.9);
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%;background:var(--bg);color:var(--fg);font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  canvas,#media{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #media{display:none}
+  #veil{position:absolute;inset:0;background:#000;opacity:var(--veil,.25);pointer-events:none}
+
+  /* top bar */
+  header{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:28px;padding:22px 48px;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
+  header .clock{font-size:28px;font-weight:300;letter-spacing:.04em;text-shadow:0 0 18px var(--glow)}
+  header nav{display:flex;gap:22px;margin-left:24px}
+  header nav b{font-weight:400;color:var(--dim);padding:6px 0;border-bottom:2px solid transparent;cursor:pointer}
+  header nav b.on,header nav b.focus{color:var(--fg);border-color:var(--glow);text-shadow:0 0 12px var(--glow)}
+  header .status{margin-left:auto;display:flex;gap:18px;color:var(--dim);font-size:13px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:#3dff9a;box-shadow:0 0 10px #3dff9a}
+  .dot.bad{background:#ff5c7a;box-shadow:0 0 10px #ff5c7a}
+
+  /* dock */
+  #dock{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);display:flex;gap:26px;padding:18px 28px;border-radius:28px;background:rgba(0,0,0,.35);backdrop-filter:blur(6px)}
+  .app{width:84px;text-align:center;cursor:pointer;transition:transform .18s}
+  .app i{display:grid;place-items:center;width:84px;height:84px;border-radius:24px;background:var(--tile);border:1px solid rgba(94,231,255,.18);font-style:normal;font-size:38px;transition:box-shadow .18s,border-color .18s}
+  .app span{display:block;margin-top:10px;font-size:13px;color:var(--dim);opacity:0;transition:opacity .18s}
+  .app.focus{transform:translateY(-10px) scale(1.12)}
+  .app.focus i{border-color:var(--ring);box-shadow:0 0 0 2px var(--ring),0 0 28px var(--glow),0 0 60px rgba(177,140,255,.45)}
+  .app.focus span{opacity:1;color:var(--fg)}
+
+  /* panel (backgrounds / settings) */
+  #panel{position:absolute;top:84px;left:48px;width:min(360px,calc(100% - 32px));padding:18px;border-radius:18px;background:rgba(0,0,0,.72);border:1px solid rgba(94,231,255,.25);display:none;font-size:14px}
+  #panel.show{display:block}
+  #panel h3{font-weight:400;letter-spacing:.1em;text-transform:uppercase;font-size:13px;color:var(--glow);margin-bottom:10px}
+  #bgs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px}
+  #bgs button,#panel label.btn{all:unset;cursor:pointer;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);color:var(--dim)}
+  #bgs button.on,#bgs button:focus-visible,#panel label.btn:focus-visible{color:var(--fg);box-shadow:inset 0 0 0 1px var(--ring)}
+  #panel .row{display:flex;align-items:center;gap:10px;margin:8px 0;color:var(--dim)}
+  #panel input[type=range]{flex:1;accent-color:var(--glow)}
+  #hint{position:absolute;right:24px;bottom:16px;font-size:12px;color:var(--dim);opacity:.7}
+  #toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:22px;letter-spacing:.1em;text-shadow:0 0 20px var(--glow);opacity:0;transition:opacity .4s;pointer-events:none}
+
+  @media (max-width:700px){
+    header{padding:14px 16px;gap:12px;flex-wrap:wrap} header nav{margin-left:0;gap:14px} header .status{display:none}
+    #dock{gap:10px;padding:10px 12px;bottom:20px;max-width:calc(100% - 32px);overflow-x:auto}
+    .app,.app i{width:56px} .app i{height:56px;font-size:26px;border-radius:16px}
+    #panel{left:16px;top:120px}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <video id="vid" class="media" muted loop playsinline style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>
+  <img id="media" alt="">
+  <div id="veil"></div>
+</div>
+
+<header>
+  <div class="clock" id="clock">--:--</div>
+  <nav id="nav"><b class="on">Home</b><b>Media</b><b>Apps</b><b>Backgrounds</b></nav>
+  <div class="status">
+    <span><i class="dot" id="jfdot"></i>Jellyfin</span>
+    <span><i class="dot"></i>Wi-Fi 5 GHz</span>
+    <span>🎧 Rokid</span>
+  </div>
+</header>
+
+<div id="dock"></div>
+
+<div id="panel">
+  <h3>Animated background</h3>
+  <div id="bgs"></div>
+  <div class="row">AR dim <input id="veilR" type="range" min="0" max="0.9" step="0.05" value="0.25"></div>
+  <div class="row">Speed <input id="speedR" type="range" min="0.2" max="2" step="0.1" value="1"></div>
+  <div class="row"><label class="btn" tabindex="0">📁 Use my video / GIF<input id="file" type="file" accept="video/*,image/gif,image/webp,image/png,image/jpeg" hidden></label></div>
+  <div class="row" style="font-size:12px">On Rokid glasses pure black is see-through. Keep dim high outdoors.</div>
+</div>
+
+<div id="toast"></div>
+<div id="hint">← → move · ↑ menu · Enter open · B backgrounds · Esc close</div>
+
+<script>
+// ---------- apps (dock) ----------
+const APPS = [
+  ["🎬","Jellyfin"],["🌐","Browser"],["▶️","SmartTube"],["🎸","Songsterr"],
+  ["🎮","Moonlight"],["🧊","Kodi"],["📁","Files"],["⚙️","Settings"]
+];
+const dock = document.getElementById('dock');
+APPS.forEach(([ico,name])=>{
+  const d=document.createElement('div'); d.className='app';
+  d.innerHTML=`<i>${ico}</i><span>${name}</span>`; dock.appendChild(d);
+});
+
+// ---------- 10 calming backgrounds ----------
+const cv=document.getElementById('cv'), cx=cv.getContext('2d');
+let W,H,DPR=Math.min(devicePixelRatio||1,2), speed=1, t=0;
+function size(){W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR}
+addEventListener('resize',()=>{size();cur.init&&cur.init()}); size();
+const R=(a=1,b)=>b===undefined?Math.random()*a:a+Math.random()*(b-a);
+const fade=(a)=>{cx.fillStyle=`rgba(0,0,0,${a})`;cx.fillRect(0,0,W,H)};
+let P=[];
+
+const BG = {
+  "Starfield":{init(){P=Array.from({length:500},()=>({x:R(W),y:R(H),z:R(.2,1),p:R(6)}))},
+    draw(){fade(1);for(const s of P){s.x-=s.z*.15*speed*DPR;if(s.x<0)s.x=W;const a=.4+.6*Math.abs(Math.sin(t*.02+s.p));
+      cx.fillStyle=`rgba(220,240,255,${a*s.z})`;cx.fillRect(s.x,s.y,s.z*2*DPR,s.z*2*DPR)}}},
+  "Constellations":{init(){P=Array.from({length:70},()=>({x:R(W),y:R(H),vx:R(-.15,.15),vy:R(-.15,.15)}))},
+    draw(){fade(1);const L=160*DPR;for(const a of P){a.x=(a.x+a.vx*speed*DPR+W)%W;a.y=(a.y+a.vy*speed*DPR+H)%H}
+      for(let i=0;i<P.length;i++)for(let j=i+1;j<P.length;j++){const d=Math.hypot(P[i].x-P[j].x,P[i].y-P[j].y);
+        if(d<L){cx.strokeStyle=`rgba(94,231,255,${(1-d/L)*.35})`;cx.beginPath();cx.moveTo(P[i].x,P[i].y);cx.lineTo(P[j].x,P[j].y);cx.stroke()}}
+      cx.fillStyle='#bff6ff';P.forEach(a=>{cx.beginPath();cx.arc(a.x,a.y,1.6*DPR,0,7);cx.fill()})}},
+  "Nebula":{init(){P=Array.from({length:7},(_,i)=>({x:R(W),y:R(H),r:R(.25,.5),h:[190,265,300,210,280,175,240][i],p:R(9)}))},
+    draw(){fade(1);cx.globalCompositeOperation='lighter';for(const b of P){const x=b.x+Math.sin(t*.003*speed+b.p)*W*.08,y=b.y+Math.cos(t*.0025*speed+b.p)*H*.08,r=b.r*Math.max(W,H);
+      const g=cx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,`hsla(${b.h},90%,55%,.16)`);g.addColorStop(1,'transparent');cx.fillStyle=g;cx.fillRect(0,0,W,H)}
+      cx.globalCompositeOperation='source-over'}},
+  "Aurora":{init(){},draw(){fade(1);cx.globalCompositeOperation='lighter';for(let k=0;k<4;k++){cx.beginPath();
+      for(let x=0;x<=W;x+=12*DPR){const y=H*.32+Math.sin(x*.0021/DPR+t*.006*speed+k)*60*DPR+Math.sin(x*.0007/DPR-t*.004*speed+k*2)*90*DPR;x?cx.lineTo(x,y):cx.moveTo(x,y)}
+      const g=cx.createLinearGradient(0,H*.1,0,H*.7);g.addColorStop(0,'transparent');g.addColorStop(.5,`hsla(${150+k*25},90%,60%,.10)`);g.addColorStop(1,'transparent');
+      cx.lineWidth=140*DPR;cx.strokeStyle=g;cx.stroke()}cx.globalCompositeOperation='source-over'}},
+  "Fireflies":{init(){P=Array.from({length:60},()=>({x:R(W),y:R(H),a:R(7),s:R(.3,1)}))},
+    draw(){fade(.25);for(const f of P){f.a+=.01*speed;f.x+=Math.cos(f.a)*f.s*.6*DPR*speed;f.y+=Math.sin(f.a*1.3)*f.s*.4*DPR*speed;
+      f.x=(f.x+W)%W;f.y=(f.y+H)%H;const l=.5+.5*Math.sin(t*.03+f.a*3);const g=cx.createRadialGradient(f.x,f.y,0,f.x,f.y,10*DPR);
+      g.addColorStop(0,`rgba(255,230,120,${l})`);g.addColorStop(1,'transparent');cx.fillStyle=g;cx.fillRect(f.x-10*DPR,f.y-10*DPR,20*DPR,20*DPR)}}},
+  "Bioluminescent sea":{init(){},draw(){fade(1);for(let k=0;k<6;k++){cx.beginPath();const base=H*(.55+k*.08);
+      for(let x=0;x<=W;x+=10*DPR){const y=base+Math.sin(x*.004/DPR+t*.01*speed*(1+k*.15))*14*DPR*(k+1)*.5;x?cx.lineTo(x,y):cx.moveTo(x,y)}
+      cx.strokeStyle=`rgba(60,220,255,${.08+.05*Math.sin(t*.02+k)})`;cx.lineWidth=2*DPR;cx.shadowColor='#3cf';cx.shadowBlur=16*DPR;cx.stroke()}cx.shadowBlur=0}},
+  "Soft rain":{init(){P=Array.from({length:220},()=>({x:R(W),y:R(H),l:R(10,30),v:R(2,5)}))},
+    draw(){fade(.35);cx.strokeStyle='rgba(150,190,255,.25)';cx.lineWidth=DPR;for(const d of P){d.y+=d.v*speed*DPR;if(d.y>H){d.y=-d.l;d.x=R(W)}
+      cx.beginPath();cx.moveTo(d.x,d.y);cx.lineTo(d.x,d.y+d.l*DPR);cx.stroke()}}},
+  "Snowfall":{init(){P=Array.from({length:180},()=>({x:R(W),y:R(H),r:R(.6,2.4),p:R(7)}))},
+    draw(){fade(1);cx.fillStyle='rgba(255,255,255,.7)';for(const s of P){s.y+=s.r*.35*speed*DPR;s.x+=Math.sin(t*.01+s.p)*.3*DPR;if(s.y>H){s.y=-5;s.x=R(W)}
+      cx.beginPath();cx.arc(s.x,s.y,s.r*DPR,0,7);cx.fill()}}},
+  "Breathing orbs":{init(){P=Array.from({length:5},(_,i)=>({x:R(.15,.85),y:R(.2,.7),h:[190,265,320,160,220][i],p:i*1.3}))},
+    draw(){fade(1);cx.globalCompositeOperation='lighter';for(const o of P){const r=(.12+.05*Math.sin(t*.008*speed+o.p))*Math.min(W,H);
+      const x=o.x*W+Math.sin(t*.002*speed+o.p)*40*DPR,y=o.y*H+Math.cos(t*.002*speed+o.p)*30*DPR,g=cx.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,`hsla(${o.h},90%,60%,.35)`);g.addColorStop(1,'transparent');cx.fillStyle=g;cx.beginPath();cx.arc(x,y,r,0,7);cx.fill()}
+      cx.globalCompositeOperation='source-over'}},
+  "Slow galaxy":{init(){P=Array.from({length:1400},()=>{const arm=Math.floor(R(3)),d=Math.pow(R(),.6);return{d,a:arm*2.094+d*5+R(-.35,.35),s:R(.5,1.6)}})},
+    draw(){fade(1);const c=[W/2,H/2],m=Math.min(W,H)*.48;for(const s of P){const a=s.a+t*.0006*speed/(s.d+.2);
+      const x=c[0]+Math.cos(a)*s.d*m*1.4,y=c[1]+Math.sin(a)*s.d*m*.55;cx.fillStyle=`hsla(${210+s.d*80},80%,${85-s.d*30}%,${.9-s.d*.6})`;cx.fillRect(x,y,s.s*DPR,s.s*DPR)}}}
+};
+const names=Object.keys(BG); let cur=BG[names[0]], curName=names[0], mediaOn=false;
+function setBg(n){cur=BG[n];curName=n;mediaOn=false;vid.pause();vid.style.display='none';img.style.display='none';cv.style.display='block';
+  cx.clearRect(0,0,W,H);cur.init();[...bgs.children].forEach(b=>b.classList.toggle('on',b.textContent===n));toast(n);save()}
+(function loop(){if(!mediaOn){cur.draw();t++}requestAnimationFrame(loop)})();
+
+// ---------- user video / GIF ----------
+const vid=document.getElementById('vid'), img=document.getElementById('media');
+document.getElementById('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const u=URL.createObjectURL(f);mediaOn=true;cv.style.display='none';
+  if(f.type.startsWith('video')){img.style.display='none';vid.src=u;vid.style.display='block';vid.play()}else{vid.style.display='none';img.src=u;img.style.display='block'}
+  [...bgs.children].forEach(b=>b.classList.remove('on'));toast(f.name)};
+
+// ---------- panel ----------
+const bgs=document.getElementById('bgs'), panel=document.getElementById('panel');
+names.forEach(n=>{const b=document.createElement('button');b.textContent=n;b.onclick=()=>setBg(n);bgs.appendChild(b)});
+const veilR=document.getElementById('veilR'),speedR=document.getElementById('speedR');
+veilR.oninput=()=>{document.documentElement.style.setProperty('--veil',veilR.value);save()};
+speedR.oninput=()=>{speed=+speedR.value;save()};
+function save(){try{localStorage.setItem('starshine',JSON.stringify({bg:curName,veil:veilR.value,speed}))}catch(e){}}
+try{const s=JSON.parse(localStorage.getItem('starshine')||'{}');if(s.veil){veilR.value=s.veil;veilR.oninput()}if(s.speed){speedR.value=s.speed;speed=+s.speed}if(BG[s.bg]){curName=s.bg;cur=BG[s.bg]}}catch(e){}
+cur.init();[...bgs.children].forEach(b=>b.classList.toggle('on',b.textContent===curName));
+
+// ---------- D-pad / remote navigation ----------
+const apps=[...dock.children], tabs=[...document.querySelectorAll('#nav b')];
+let zone='dock', i=0, j=0;
+function paint(){apps.forEach((a,k)=>a.classList.toggle('focus',zone==='dock'&&k===i));tabs.forEach((b,k)=>b.classList.toggle('focus',zone==='nav'&&k===j))}
+function openApp(k){toast('Launching '+APPS[k][1]+'…')}
+function openTab(k){tabs.forEach((b,n)=>b.classList.toggle('on',n===k));panel.classList.toggle('show',k===3);if(k===3)bgs.children[0].focus()}
+addEventListener('keydown',e=>{
+  if(panel.classList.contains('show')&&!['Escape','Backspace','b','B'].includes(e.key))return;
+  switch(e.key){
+    case'ArrowRight':zone==='dock'?i=(i+1)%apps.length:j=(j+1)%tabs.length;break;
+    case'ArrowLeft':zone==='dock'?i=(i-1+apps.length)%apps.length:j=(j-1+tabs.length)%tabs.length;break;
+    case'ArrowUp':zone='nav';break; case'ArrowDown':zone='dock';break;
+    case'Enter':zone==='dock'?openApp(i):openTab(j);break;
+    case'b':case'B':panel.classList.toggle('show');if(panel.classList.contains('show'))bgs.children[0].focus();break;
+    case'Escape':case'Backspace':panel.classList.remove('show');break;
+    default:return}
+  e.preventDefault();paint()});
+apps.forEach((a,k)=>{a.onmouseenter=()=>{zone='dock';i=k;paint()};a.onclick=()=>openApp(k)});
+tabs.forEach((b,k)=>{b.onclick=()=>{zone='nav';j=k;paint();openTab(k)}});
+paint();
+
+// ---------- top bar ----------
+const clock=document.getElementById('clock');
+setInterval(()=>clock.textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),1000);
+clock.textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+let tt;function toast(s){const el=document.getElementById('toast');el.textContent=s;el.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>el.style.opacity=0,1200)}
+</script>
+</body>
+</html>

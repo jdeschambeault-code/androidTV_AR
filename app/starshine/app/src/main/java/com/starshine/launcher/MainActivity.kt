@@ -1,0 +1,2054 @@
+package com.starshine.launcher
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.net.Uri
+import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.Bundle
+import android.os.SystemClock
+import android.provider.Settings
+import android.view.InputDevice
+import android.view.ViewGroup
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.annotation.OptIn
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.drawable.toBitmap
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+
+val CYAN: Color get() = Theme.accent
+val VIOLET: Color get() = Theme.ring
+val FG: Color get() = Theme.text
+val DIM: Color get() = Theme.dim
+val GREEN = Color(0xFF3DFF9A)
+val AMBER = Color(0xFFFFC857)
+val RED = Color(0xFFFF5C7A)
+private const val SELF = "com.starshine.launcher"
+const val SETTINGS_ID = "@settings"
+private const val JELLYFIN_PKG = "org.jellyfin.androidtv"
+private const val GOOGLE_HOME = "com.google.android.tvlauncher"
+private val HIDDEN = setOf("com.droidlogic.tv.settings")
+private const val EASYCONTROL = "top.saymzx.easycontrol.app"   // views an optional Bliss OS VM on the pod
+const val BLISS_ID = "@bliss"   // Bliss OS tile, only with starshine.bliss in local.properties: opens Easycontrol or explains how to install it
+
+/** Your own LAN sites, from starshine.webTiles in local.properties ("Name|url;Name|url"). */
+private val PRIVATE_TILES = BuildConfig.WEB_TILES.split(";").filter { it.contains("|") }.map { "web:$it" }
+
+val WEB_PRESETS = listOf(
+    "web:Songsterr|https://www.songsterr.com",
+    "web:Ultimate Guitar|https://www.ultimate-guitar.com",
+    "web:YouTube Music|https://music.youtube.com"
+) + PRIVATE_TILES
+
+private val DEFAULT_DOCK = listOf(
+    "com.google.android.youtube.tv", "com.android.vending", "com.amazon.amazonvideo.livingroom",
+    JELLYFIN_PKG, "com.synology.dsvideo", "com.internet.tvbrowser",
+    "com.teamsmart.videomanager.tv", "com.limelight", "org.mozilla.firefox", WEB_PRESETS[0]
+) + PRIVATE_TILES.take(2) + (if (BuildConfig.BLISS.isNotEmpty()) listOf(BLISS_ID) else emptyList())
+
+private val BROWSERS = listOf("@builtin" to "Starshine built-in", "org.mozilla.firefox" to "Firefox", "com.phlox.tvwebbrowser" to "TV Bro", "" to "System default")
+
+/** Scene mood = background + look + dim + sound. */
+data class Mood(val name: String, val bg: String, val style: BgStyle, val dim: Float, val ambient: String)
+val MOODS = listOf(
+    Mood("Focus", "Constellations", BgStyle(speed = 0.6f, glow = 0.8f), 0.35f, "Off"),
+    Mood("Movie", "Starfield", BgStyle(speed = 0.4f, glow = 0.6f, brightness = 0.7f), 0.6f, "Off"),
+    Mood("Sleep", "Breathing orbs", BgStyle(speed = 0.5f, hue = 330f, brightness = 0.6f, saturation = 0.7f), 0.5f, "Rain"),
+    Mood("Calm", "Bioluminescent sea", BgStyle(speed = 0.7f), 0.25f, "Ocean"),
+    Mood("Night forest", "Fireflies", BgStyle(speed = 0.8f, glow = 1.2f), 0.2f, "Off"),
+    Mood("Party", "Aurora", BgStyle(speed = 1.6f, glow = 1.6f, saturation = 1.4f), 0.1f, "Off")
+)
+
+data class AppEntry(val id: String, val label: String, val icon: ImageBitmap? = null, val banner: ImageBitmap? = null) {
+    val isWeb get() = id.startsWith("web:")
+}
+
+fun webEntry(id: String) = AppEntry(id, id.removePrefix("web:").substringBefore("|"))
+
+class Prefs(ctx: Context) {
+    private val sp = ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE)
+    private fun f(k: String, d: Float) = sp.getFloat(k, d)
+    private fun put(k: String, v: Float) = sp.edit().putFloat(k, v).apply()
+    private fun s(k: String, d: String) = sp.getString(k, d)!!
+    private fun put(k: String, v: String) = sp.edit().putString(k, v).apply()
+    private fun b(k: String, d: Boolean) = sp.getBoolean(k, d)
+    private fun put(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
+
+    var bg get() = s("bg", "Starfield"); set(v) = put("bg", v)
+    var saverBg get() = s("saverBg", ""); set(v) = put("saverBg", v)
+    var dim get() = f("dim", 0.2f); set(v) = put("dim", v)
+    var fps30 get() = b("fps30", true); set(v) = put("fps30", v)
+    var browser get() = s("browser", "@builtin"); set(v) = put("browser", v)
+    var jellyfin get() = s("jf", BuildConfig.JELLYFIN); set(v) = put("jf", v)
+    var jfToken get() = s("jfToken", ""); set(v) = put("jfToken", v)
+    var jfUser get() = s("jfUser", ""); set(v) = put("jfUser", v)
+    var showResume get() = b("showResume", true); set(v) = put("showResume", v)
+    var dockScale get() = f("dockScale", 0.5f); set(v) = put("dockScale", v)
+    var hideSecs get() = f("hideSecs", 10f); set(v) = put("hideSecs", v)
+    var topHideSecs get() = f("topHideSecs", 40f); set(v) = put("topHideSecs", v)
+    var uiScale get() = f("uiScale", 1f); set(v) = put("uiScale", v)
+    var glasses get() = b("glasses", false); set(v) = put("glasses", v)
+    var offX get() = f("offX", 0f); set(v) = put("offX", v)
+    var offY get() = f("offY", 0f); set(v) = put("offY", v)
+    var ambient get() = s("ambient", "Off"); set(v) = put("ambient", v)
+    var ambientVol get() = f("ambientVol", 0.35f); set(v) = put("ambientVol", v)
+    var visual get() = s("visual", "Auto"); set(v) = put("visual", v)
+    var nebula get() = s("nebula", "Violet"); set(v) = put("nebula", v)
+    var nebulaA get() = f("nebulaA", 0.55f); set(v) = put("nebulaA", v)
+    var visualI get() = f("visualI", 1f); set(v) = put("visualI", v)
+    /** Quick-panel switches: elements on or off, without touching which background or sound is chosen. */
+    var bgOn get() = b("bgOn", true); set(v) = put("bgOn", v)
+    var dimOn get() = b("dimOn", true); set(v) = put("dimOn", v)
+    var lastVisual get() = s("lastVisual", "Auto"); set(v) = put("lastVisual", v)
+    var lastSound get() = s("lastSound", ""); set(v) = put("lastSound", v)
+    fun reactive(bg: String) = b("react:$bg", false)
+    fun setReactive(bg: String, on: Boolean) = put("react:$bg", on)
+    fun migrated(tag: String): Boolean { val done = b("mig_$tag", false); if (!done) put("mig_$tag", true); return done }
+    var dock: List<String>
+        get() = sp.getString("dock2", null)?.split("\n")?.filter { it.isNotBlank() } ?: DEFAULT_DOCK
+        set(v) = put("dock2", v.joinToString("\n"))
+    var style: BgStyle
+        get() = BgStyle(f("speed", 1f), f("density", 0.75f), f("glow", 1f), f("hue", 0f), f("size", 1f),
+            f("brightness", 1f), f("saturation", 1f), f("twinkle", 1f), f("vignette", 1f), f("dirX", 0f), f("dirY", 0f), f("dirZ", 1f))
+        set(v) {
+            put("speed", v.speed); put("density", v.density); put("glow", v.glow); put("hue", v.hue); put("size", v.size)
+            put("brightness", v.brightness); put("saturation", v.saturation); put("twinkle", v.twinkle); put("vignette", v.vignette)
+            put("dirX", v.dirX); put("dirY", v.dirY); put("dirZ", v.dirZ)
+        }
+}
+
+class MainActivity : ComponentActivity() {
+    private var refresh by mutableIntStateOf(0)
+    private var quickRequest by mutableIntStateOf(0)
+    private var homeRequest by mutableIntStateOf(0)
+    private var sceneRequest by mutableStateOf("")
+    private var builderRequest by mutableIntStateOf(0)
+    private var peekRequest by mutableStateOf("")
+    private var buildRequest by mutableStateOf("")
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Sound.init(this)
+        Theme.load(this)
+        Drone.load(this)
+        Support.load(this)
+        intent?.getStringExtra("supportKey")?.let { Support.enter(this, it) }
+        getExternalFilesDir("nebulae"); getExternalFilesDir("backgrounds")
+        val p = Prefs(this)
+        Ambient.volume = p.ambientVol
+        if (Sound.current.isEmpty() && p.ambient != "Off") Sound.playAmbient(this, p.ambient, p.ambientVol)
+        if (intent?.getBooleanExtra("quick", false) == true) quickRequest++
+        // opened normally (not via the Home button) -> Home button goes to Starshine again
+        getSharedPreferences("starshine", MODE_PRIVATE).edit().putBoolean("homeOverride", true).apply()
+        sceneRequest = intent?.getStringExtra("bgScene") ?: ""
+        if (intent?.getBooleanExtra("bgNew", false) == true) builderRequest++
+        peekRequest = intent?.getStringExtra("bgPeek") ?: ""; buildRequest = intent?.getStringExtra("bgBuild") ?: ""
+        if (intent?.getBooleanExtra("soundTest", false) == true) soundTest()
+        setContent { Launcher(refresh, quickRequest, homeRequest, sceneRequest, builderRequest, peekRequest, buildRequest) }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("quick", false)) quickRequest++
+        if (intent.getBooleanExtra("home", false)) homeRequest++
+        intent.getStringExtra("bgScene")?.let { sceneRequest = it }
+        if (intent.getBooleanExtra("bgNew", false)) builderRequest++
+        intent.getStringExtra("bgPeek")?.let { peekRequest = it }
+        intent.getStringExtra("supportKey")?.let { Support.enter(this, it) }
+        intent.getStringExtra("bgBuild")?.let { buildRequest = it }
+        if (intent.getBooleanExtra("soundTest", false)) soundTest()
+    }
+    /** First stop for every key from every remote. Compose only delivers keys while something has focus, so this runs before it. */
+    override fun dispatchKeyEvent(e: android.view.KeyEvent): Boolean {
+        val c = e.keyCode
+        if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0)
+            android.util.Log.i("StarshineInput", "raw key " + android.view.KeyEvent.keyCodeToString(c) + " scan=" + e.scanCode + " from " + (e.device?.name ?: "injected"))
+        val arrow = c == android.view.KeyEvent.KEYCODE_DPAD_UP || c == android.view.KeyEvent.KEYCODE_DPAD_DOWN || c == android.view.KeyEvent.KEYCODE_DPAD_LEFT || c == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+        val ok = c == android.view.KeyEvent.KEYCODE_DPAD_CENTER || c == android.view.KeyEvent.KEYCODE_ENTER || c == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ||
+            c == android.view.KeyEvent.KEYCODE_BUTTON_SELECT || c == android.view.KeyEvent.KEYCODE_BUTTON_A
+        // focus got lost: put it back before the press, instead of letting Android pick the first item on screen (the clock)
+        if ((arrow || ok) && e.action == android.view.KeyEvent.ACTION_DOWN && FocusMem.current == null) {
+            android.util.Log.i("StarshineInput", "focus was lost, restoring " + FocusMem.last)
+            // a mouse click (the M5's OK) puts the window in touch mode, where most items can't hold focus: leave it first
+            (findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0))?.requestFocusFromTouch()
+            FocusMem.restore(FocusMem.last)
+            if (FocusMem.current == null) FocusMem.pendingDock = true
+        }
+        if (c == android.view.KeyEvent.KEYCODE_BUTTON_SELECT || c == android.view.KeyEvent.KEYCODE_BUTTON_A)
+            return super.dispatchKeyEvent(android.view.KeyEvent(e.downTime, e.eventTime, e.action, android.view.KeyEvent.KEYCODE_DPAD_CENTER, e.repeatCount))
+        return super.dispatchKeyEvent(e)
+    }
+    override fun dispatchTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN)
+            android.util.Log.i("StarshineInput", "raw click buttons=" + e.buttonState + " tool=" + e.getToolType(0) + " from " + (e.device?.name ?: "?") + " focus=" + FocusMem.current + " hover=" + (M5.hoverTarget != null))
+        return super.dispatchTouchEvent(e)
+    }
+    override fun dispatchGenericMotionEvent(e: android.view.MotionEvent): Boolean {
+        if (e.actionMasked == android.view.MotionEvent.ACTION_BUTTON_PRESS)
+            android.util.Log.i("StarshineInput", "raw button buttons=" + e.buttonState + " from " + (e.device?.name ?: "?"))
+        return super.dispatchGenericMotionEvent(e)
+    }
+    private fun soundTest() { val d = java.io.File(getExternalFilesDir(null), "soundtest"); Thread { Ambient.renderTest(d) }.apply { isDaemon = true; start() } }
+    override fun onResume() { super.onResume(); refresh++; FocusMem.pendingDock = true }
+    // sound keeps playing in silent apps; Sound pauses it automatically when another app plays audio
+}
+
+/* ---------------- focus memory: focus returns exactly where you were ---------------- */
+
+object FocusMem {
+    val map = HashMap<String, FocusRequester>()
+    var last: String? = null
+    /** Item holding focus right now, null if focus got lost (a closed menu, a removed item). */
+    var current: String? = null
+    /** Last focused item outside the top bar: Down from the top bar returns there. */
+    var lastContent: String? = null
+    /** Set when Starshine comes to the front: the dock takes focus so the first press acts on an app, not on the clock. */
+    var pendingDock by mutableStateOf(true)
+    fun restore(id: String?) { id?.let { runCatching { map[it]?.requestFocus() } } }
+}
+
+fun Modifier.remembered(id: String): Modifier = composed {
+    val fr = remember(id) { FocusRequester() }
+    DisposableEffect(id) { FocusMem.map[id] = fr; onDispose { if (FocusMem.map[id] === fr) FocusMem.map.remove(id) } }
+    this.focusRequester(fr).onFocusChanged {
+        if (it.isFocused) {
+            FocusMem.last = id; FocusMem.current = id
+            if (!(id == "clock" || id.startsWith("tab:") || id.startsWith("pill:"))) FocusMem.lastContent = id
+            android.util.Log.i("StarshineInput", "focus $id")
+        } else if (FocusMem.current == id) FocusMem.current = null
+    }
+}
+
+private enum class Tab(val title: String) { Home("Home"), Apps("Apps"), Bg("Backgrounds"), Drone("Drone"), Settings("Settings") }
+
+private val SETTINGS_CATS = listOf(
+    "Display & position" to "Dock size, auto-hide, UI scale, glasses mode, screen position, frame rate",
+    "Theme" to "Color presets, ring color, panel transparency, fonts",
+    "Drone" to "Show or hide the Drone menu, immersive view, drone-only AR dim, picture size",
+    "Files" to "Browse storage, play videos in VLC, use a file as background",
+    "Sound" to "Volume, stop sound, frequency generator",
+    "Voice setup" to "Check the microphone and recognizer, test a voice command",
+    "M5 air mouse" to "Click behaviour, hover, edit lock, buttons, calibration",
+    "Gestures" to "Draw shapes with the M5 to open apps or change the background",
+    "Web & Jellyfin" to "Browser for web tiles, Continue watching, Quick Connect",
+    "Screensaver" to "Starshine screensaver",
+    "Dock" to "Reset dock order",
+    "System" to "Wi-Fi, Bluetooth, display, Amlogic, Android settings",
+    "About & exit" to "Version, exit Starshine"
+)
+
+/** True when an OK press would act on something currently slid off screen (only then is it used just to reveal it). */
+private fun focusIsHidden(dockHidden: Boolean, topHidden: Boolean): Boolean {
+    val f = FocusMem.last ?: return dockHidden
+    val inTop = f == "clock" || f.startsWith("tab:") || f.startsWith("pill:")
+    return if (inTop) topHidden else dockHidden && f.startsWith("tile:")
+}
+
+private fun isArrow(k: Key) = k == Key.DirectionLeft || k == Key.DirectionRight || k == Key.DirectionUp || k == Key.DirectionDown
+
+/* ---------------- root ---------------- */
+
+@Composable
+fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest: String = "", builderRequest: Int = 0, peekRequest: String = "", buildRequest: String = "") {
+    val ctx = LocalContext.current
+    val prefs = remember { Prefs(ctx) }
+    val scope = rememberCoroutineScope()
+    val view = LocalView.current
+    remember { M5.load(ctx); Bg2.load(ctx); 0 }
+    val glowCursor = remember { mutableStateOf(ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE).getBoolean("glowCursor", true)) }
+    LaunchedEffect(glowCursor.value) { runCatching { view.pointerIcon = if (glowCursor.value) glowDotIcon(ctx) else null } }
+    var apps by remember { mutableStateOf(emptyList<AppEntry>()) }
+    LaunchedEffect(refresh) { apps = withContext(Dispatchers.IO) { loadApps(ctx.packageManager) } }
+    var dock by remember {
+        mutableStateOf(prefs.dock)
+    }
+    var bg by remember { mutableStateOf(prefs.bg) }
+    var style by remember { mutableStateOf(prefs.style) }
+    var dim by remember { mutableStateOf(prefs.dim) }
+    var fps30 by remember { mutableStateOf(prefs.fps30) }
+    var browser by remember { mutableStateOf(prefs.browser) }
+    var dockScale by remember { mutableStateOf(prefs.dockScale) }
+    var hideSecs by remember { mutableStateOf(prefs.hideSecs.let { if (prefs.migrated("v6")) it else 10f.also { v -> prefs.hideSecs = v } }) }
+    var topHideSecs by remember { mutableStateOf(prefs.topHideSecs) }
+    var topHidden by remember { mutableStateOf(false) }
+    var uiScale by remember { mutableStateOf(prefs.uiScale) }
+    var glasses by remember { mutableStateOf(prefs.glasses) }
+    var offX by remember { mutableStateOf(prefs.offX) }
+    var offY by remember { mutableStateOf(prefs.offY) }
+    var ambientVol by remember { mutableStateOf(prefs.ambientVol) }
+    var visual by remember { mutableStateOf(prefs.visual) }
+    var bgOn by remember { mutableStateOf(prefs.bgOn) }
+    var dimOn by remember { mutableStateOf(prefs.dimOn) }
+    var pickForNode by remember { mutableIntStateOf(-1) }
+    var visualI by remember { mutableStateOf(prefs.visualI) }
+    var posZoom by remember { mutableStateOf(false) }
+    var showResume by remember { mutableStateOf(prefs.showResume) }
+    var jfToken by remember { mutableStateOf(prefs.jfToken) }
+    var tab by remember { mutableStateOf(Tab.Home) }
+    var moving by remember { mutableStateOf<String?>(null) }
+    // modal stack: (modal id, focus id to return to)
+    var modals by remember { mutableStateOf(listOf<Pair<String, String?>>()) }
+    val top = modals.lastOrNull()?.first
+    LaunchedEffect(top) { glowCursor.value = ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE).getBoolean("glowCursor", true) }
+    var positioning by remember { mutableStateOf(false) }
+    var listening by remember { mutableStateOf(false) }
+    var heard by remember { mutableStateOf("") }
+    var toast by remember { mutableStateOf("") }
+    var sleepAt by remember { mutableLongStateOf(0L) }
+    var lastInput by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var dockHidden by remember { mutableStateOf(false) }
+    var swallowUp by remember { mutableStateOf<Key?>(null) }
+    var presetsVersion by remember { mutableIntStateOf(0) }
+    val lastRepeat = remember { longArrayOf(0L) }
+    var gestures by remember { mutableStateOf<Map<String, String>>(Gestures.load(ctx)) }
+    var gesturing by remember { mutableStateOf(false) }
+    var gestureArmed by remember { mutableStateOf(false) }
+    var recordingGesture by remember { mutableStateOf(false) }
+    val trail = remember { mutableStateListOf<Offset>() }
+    val media = remember(refresh, tab) { mediaFiles(ctx) }
+
+    fun openModal(id: String) { modals = modals + (id to FocusMem.last) }
+    fun closeModal() { val r = modals.lastOrNull()?.second; modals = modals.dropLast(1); scope.launch { delay(90); FocusMem.restore(r) } }
+    fun saveDock(d: List<String>) { dock = d; prefs.dock = d }
+    fun setStyle(s: BgStyle) { style = s; prefs.style = s }
+    fun savePos() { prefs.offX = offX; prefs.offY = offY }
+    /** Back to the original full-screen layout: position, zoom and glasses safe-zone together. */
+    fun resetLayout() {
+        offX = 0f; offY = 0f; uiScale = 1f; glasses = false; posZoom = false
+        prefs.uiScale = 1f; prefs.glasses = false; savePos(); toast = "Layout reset: full screen"
+    }
+    fun playAmbient(m: String) { prefs.ambient = m; prefs.lastSound = "a:$m"; Sound.playAmbient(ctx, m, ambientVol) }
+    fun playTone(t: Tone) { prefs.ambient = "Off"; prefs.lastSound = "t:" + t.name; Sound.playTone(ctx, t) }
+    /** Applies a Bg scene from its clean saved state. Its sound starts only if the scene has one; otherwise sound is left as it is. */
+    fun applyScene(s: BgScene) {
+        Bg2.setCurrent(ctx, s); Bg2.preview = s; bg = BG2_ID; prefs.bg = BG2_ID; bgOn = true; prefs.bgOn = true
+        when { s.sound.startsWith("t:") -> Tones.loadPresets(ctx).find { it.name == s.sound.removePrefix("t:") }?.let { playTone(it) }
+            s.sound.isNotEmpty() -> playAmbient(s.sound) }
+        toast = "Scene: ${s.name}"
+    }
+    fun stopSound() { prefs.ambient = "Off"; Sound.stop() }
+    fun applyMood(m: Mood) {
+        bg = m.bg; prefs.bg = m.bg; setStyle(m.style)   // AR dim is a global setting: moods leave it alone
+        if (m.ambient == "Off") stopSound() else playAmbient(m.ambient); toast = "Mood: ${m.name}"
+    }
+    fun cleanRam() { scope.launch { val mb = withContext(Dispatchers.IO) { SystemInfo.boost(ctx, apps.map { it.id }) }; toast = "Freed $mb MB of RAM" } }
+
+    // ---- voice
+    val voice = remember { Voice(ctx, onPartial = { heard = it }, onResult = { text, err -> listening = false; Sound.release(); if (text == null) toast = "Voice: $err (Settings → Voice setup)" else heard = text }) }
+    DisposableEffect(Unit) { onDispose { voice.stop() } }
+    fun startVoice() {
+        if (!voice.available()) { toast = "No speech recognizer found (Settings → Voice setup)"; return }
+        if (!Voice.hasMic(ctx)) { (ctx as? Activity)?.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1); toast = "Allow the microphone, then try again"; return }
+        heard = ""; listening = true; Sound.hold(); voice.listen()
+    }
+    fun runVoice(raw: String) {
+        val t = raw.lowercase(Locale.getDefault()).trim()
+        fun app(q: String) = Voice.bestMatch(q, apps + WEB_PRESETS.map { webEntry(it) }) { it.label }
+        fun after(vararg w: String) = w.firstNotNullOfOrNull { k -> if (t.startsWith("$k ")) t.removePrefix("$k ").trim() else null }
+        val num = Regex("\\d+").find(t)?.value?.toLongOrNull()
+        val presets = Tones.loadPresets(ctx)
+        toast = "🎤 $raw"
+        when {
+            after("open", "launch", "start") != null -> { val q = after("open", "launch", "start")!!; app(q)?.let { launch(ctx, it.id, browser) } ?: run { toast = "No app called \"$q\"" } }
+            t == "home" || t == "go home" -> tab = Tab.Home
+            t.startsWith("apps") || t == "all apps" -> tab = Tab.Apps
+            t == "backgrounds" || t == "moods" -> tab = Tab.Bg
+            t.startsWith("settings") -> tab = Tab.Settings
+            after("background", "show") != null -> { val q = after("background", "show")!!; PROCEDURAL.firstOrNull { it.lowercase().contains(q) }?.let { bg = it; prefs.bg = it } ?: run { toast = "No background \"$q\"" } }
+            after("mood", "play") != null -> {
+                val q = after("mood", "play")!!
+                MOODS.firstOrNull { it.name.lowercase().contains(q) }?.let { applyMood(it) }
+                    ?: Ambient.MODES.drop(1).firstOrNull { it.lowercase().contains(q) }?.let { playAmbient(it) }
+                    ?: presets.firstOrNull { it.name.lowercase().contains(q) }?.let { playTone(it) }
+                    ?: run { toast = "No mood \"$q\"" }
+            }
+            t.contains("stop") && (t.contains("sound") || t.contains("mood") || t.contains("tone") || t.contains("music")) -> stopSound()
+            t.contains("volume up") || t == "louder" -> SystemInfo.volume(ctx, AudioManager.ADJUST_RAISE)
+            t.contains("volume down") || t == "quieter" -> SystemInfo.volume(ctx, AudioManager.ADJUST_LOWER)
+            t == "mute" || t == "unmute" -> SystemInfo.volume(ctx, AudioManager.ADJUST_TOGGLE_MUTE)
+            t.contains("clean") || t.contains("free memory") || t.contains("ram") -> cleanRam()
+            t.contains("screensaver") -> SystemInfo.startScreensaver(ctx)
+            t.contains("sleep") && num != null -> { sleepAt = System.currentTimeMillis() + num * 60_000; toast = "Sleep in $num min" }
+            t.contains("sleep") && t.contains("off") -> { sleepAt = 0; toast = "Sleep timer off" }
+            t.contains("glasses") -> { glasses = !t.contains("off"); prefs.glasses = glasses }
+            t.startsWith("move") || t.startsWith("shift") -> {
+                when { t.contains("left") -> offX -= 0.04f; t.contains("right") -> offX += 0.04f; t.contains("up") -> offY -= 0.04f; t.contains("down") -> offY += 0.04f }
+                savePos()
+            }
+            t.contains("center") || t.contains("reset position") -> { offX = 0f; offY = 0f; savePos() }
+            t.contains("bigger") || t.contains("zoom in") -> { uiScale += 0.05f; prefs.uiScale = uiScale }
+            t.contains("smaller") || t.contains("zoom out") -> { uiScale = (uiScale - 0.05f).coerceAtLeast(0.02f); prefs.uiScale = uiScale }
+            t == "pause" || t == "play" || t == "resume" -> NowPlaying.current(ctx)?.let { NowPlaying.toggle(it) }
+            t == "next" || t.contains("skip") -> NowPlaying.current(ctx)?.let { NowPlaying.next(it) }
+            t.contains("open apps") || t.contains("switch app") || t.contains("recent") -> openModal("apps")
+            t.contains("quick panel") || t == "menu" -> openModal("quick")
+            after("search for", "search", "find") != null -> open(ctx, Intent("android.search.action.GLOBAL_SEARCH").putExtra(android.app.SearchManager.QUERY, after("search for", "search", "find")))
+            else -> app(t)?.let { launch(ctx, it.id, browser) } ?: run { toast = "Unknown command: \"$raw\"" }
+        }
+    }
+    LaunchedEffect(heard, listening) { if (!listening && heard.isNotEmpty()) { val h = heard; heard = ""; runVoice(h) } }
+
+    // Home button: back to the Home tab with everything closed
+    LaunchedEffect(homeRequest) { if (homeRequest > 0) { modals = emptyList(); M5.editing = null; moving = null; if (positioning) savePos(); positioning = false; posZoom = false; tab = Tab.Home } }
+    LaunchedEffect(top) { visual = prefs.visual; visualI = prefs.visualI }   // pick up visualizer changes made inside panels
+    LaunchedEffect(sceneRequest) { if (sceneRequest.isNotEmpty()) Bg2.pristine(sceneRequest)?.let { applyScene(it) } }
+    LaunchedEffect(bg) { Bg2.applied = bg == BG2_ID }
+    // full-screen preview of a scene without applying it, any button returns
+    LaunchedEffect(peekRequest) {
+        if (peekRequest.isNotEmpty()) { modals = emptyList(); tab = Tab.Bg; delay(250); Bg2.pristine(peekRequest)?.let { Bg2.preview = it; lastBrowsedScene = it.name; Bg2.fullPreview = true } }
+    }
+    LaunchedEffect(buildRequest) {
+        if (buildRequest.isNotEmpty()) { modals = emptyList(); Bg2.fullPreview = false; tab = Tab.Bg; delay(250); Bg2.pristine(buildRequest)?.let { Bg2.preview = it; lastBrowsedScene = it.name; openModal("bg2edit") } }
+    }
+    LaunchedEffect(builderRequest) {
+        if (builderRequest > 0) {
+            modals = emptyList(); tab = Tab.Bg; delay(150)
+            val b = Bg2.blank(); Bg2.preview = b; lastBrowsedScene = b.name; openModal("bg2edit")
+        }
+    }
+    LaunchedEffect(tab) { if (tab == Tab.Bg) { Bg2.preview = Bg2.current; lastBrowsedScene = Bg2.current.name } else { Bg2.fullPreview = false; Bg2.classicView = null }; if (tab != Tab.Drone) Drone.leave(ctx) }
+    LaunchedEffect(quickRequest) { if (quickRequest > 0 && top != "quick") openModal("quick") }
+    LaunchedEffect(toast) { if (toast.isNotEmpty()) { delay(2600); toast = "" } }
+    LaunchedEffect(sleepAt) {
+        if (sleepAt > 0) { delay((sleepAt - System.currentTimeMillis()).coerceAtLeast(0)); NowPlaying.pauseAll(ctx); stopSound(); SystemInfo.startScreensaver(ctx); sleepAt = 0 }
+    }
+    LaunchedEffect(tab, top, moving, hideSecs) {
+        snapshotFlow { lastInput }.collectLatest {
+            dockHidden = false
+            if (hideSecs > 0 && tab == Tab.Home && top == null && moving == null) { delay((hideSecs * 1000).toLong()); dockHidden = true }
+        }
+    }
+    LaunchedEffect(top, topHideSecs) {
+        snapshotFlow { lastInput }.collectLatest {
+            topHidden = false
+            if (topHideSecs > 0 && top == null) { delay((topHideSecs * 1000).toLong()); topHidden = true }
+        }
+    }
+    // kept as State and read only inside graphicsLayer: hiding the menus moves a GPU layer, no recomposition or layout
+    val topOffset = animateDpAsState(if (topHidden) (-150).dp else 0.dp, tween(if (topHidden) 900 else 350), label = "top")
+    val dockOffset = animateDpAsState(if (dockHidden) 260.dp else 0.dp, tween(if (dockHidden) 900 else 350), label = "dock")
+
+    BackHandler {
+        when {
+            M5.editing != null -> M5.editing = null
+            positioning -> { positioning = false; savePos() }
+            listening -> { listening = false; voice.stop(); Sound.release() }
+            moving != null -> moving = null
+            top != null -> closeModal()
+            else -> tab = Tab.Home
+        }
+    }
+
+    fun key(code: Int) {
+        val t = SystemClock.uptimeMillis()
+        view.dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, code, 0))
+        view.dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_UP, code, 0))
+    }
+    fun m5Action(a: String) = when (a) {
+        "Back" -> key(android.view.KeyEvent.KEYCODE_BACK)
+        "Quick panel" -> if (top == "quick") closeModal() else openModal("quick")
+        "Voice" -> startVoice()
+        "Open apps" -> if (top == "apps") closeModal() else openModal("apps")
+        else -> {}
+    }
+
+    fun allBgs() = PROCEDURAL + SHADERS + mediaFiles(ctx).map { "file:" + it.name }
+    fun runAction(code: String) {
+        when {
+            code.startsWith("app:") -> launch(ctx, code.removePrefix("app:"), browser)
+            code == "bg:+1" || code == "bg:-1" -> {
+                val l = allBgs(); val i = l.indexOf(bg).coerceAtLeast(0)
+                val n = l[((i + if (code == "bg:+1") 1 else -1) % l.size + l.size) % l.size]
+                bg = n; prefs.bg = n; toast = "Background: " + n.removePrefix("file:")
+            }
+            code.startsWith("bg:") -> { bg = code.removePrefix("bg:"); prefs.bg = bg }
+            code.startsWith("mood:") -> {
+                val q = code.removePrefix("mood:")
+                val m = MOODS.find { it.name == q }
+                if (m != null) applyMood(m) else if (q in Ambient.MODES) playAmbient(q) else Tones.loadPresets(ctx).find { it.name == q }?.let { playTone(it) }
+            }
+            code == "sound:stop" -> stopSound()
+            code == "ui:quick" -> openModal("quick")
+            code == "ui:home" -> { modals = emptyList(); tab = Tab.Home }
+            code == "ui:voice" -> startVoice()
+            code == "ui:apps" -> openModal("apps")
+            code == "ui:saver" -> SystemInfo.startScreensaver(ctx)
+        }
+    }
+    fun finishGesture(fromRightButton: Boolean) {
+        val pts = trail.toList(); trail.clear()
+        var len = 0f; for (i in 1 until pts.size) len += (pts[i] - pts[i - 1]).getDistance()
+        if (fromRightButton && len < 40f) { m5Action(M5.rightClick); return }      // plain right click
+        val pat = Gestures.recognize(pts)
+        if (pat.isEmpty()) { toast = "Gesture too short, draw a bigger shape"; return }
+        if (recordingGesture) {
+            recordingGesture = false
+            gestures = LinkedHashMap(gestures).apply { putIfAbsent(pat, "ui:home") }.also { Gestures.save(ctx, it) }
+            openModal("gesture:$pat"); return
+        }
+        val act = Gestures.match(pat, gestures.keys)?.let { gestures[it] }
+        if (act == null) toast = Gestures.arrows(pat) + "  has no action yet (Settings → Gestures)"
+        else { toast = Gestures.arrows(pat) + "   " + Gestures.describe(act) { id -> apps.find { it.id == id }?.label }; runAction(act) }
+    }
+
+    val inset = if (glasses) 0.06f else 0f
+    val scale = if (glasses) uiScale * 0.85f else uiScale
+
+    CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = Theme.family)) {
+    Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+        awaitPointerEventScope {
+            var lastT = 0L; var downAt = 0L; var hold: Job? = null
+            while (true) {
+                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                lastInput = System.currentTimeMillis(); dockHidden = false; topHidden = false
+                val ch = ev.changes.firstOrNull() ?: continue
+                val now = SystemClock.uptimeMillis()
+                if (ev.type == PointerEventType.Move || ev.type == PointerEventType.Enter) {
+                    M5.speed = (ch.position - M5.pointer).getDistance() * 1000f / (now - lastT).coerceAtLeast(1L); M5.pointer = ch.position; lastT = now
+                }
+                if (ev.type == PointerEventType.Press) android.util.Log.i("StarshineInput", "pointer press buttons=${ev.buttons} type=${ch.type}")
+                if ((gesturing || gestureArmed) && ev.type == PointerEventType.Move) trail.add(ch.position)
+                if (ev.type == PointerEventType.Press && ev.buttons.isSecondaryPressed) {
+                    ev.changes.forEach { it.consume() }; gesturing = true; trail.clear(); trail.add(ch.position)
+                } else if (gesturing && ev.type == PointerEventType.Release) {
+                    ev.changes.forEach { it.consume() }; gesturing = false; M5.logKey("Right button gesture"); finishGesture(true)
+                } else if (gestureArmed && ev.type == PointerEventType.Press) {
+                    ev.changes.forEach { it.consume() }; gestureArmed = false; downAt = -1L; finishGesture(false)
+                } else if (downAt == -1L && ev.type == PointerEventType.Release) {
+                    ev.changes.forEach { it.consume() }; downAt = 0L
+                } else if (ev.type == PointerEventType.Press && M5.clickAsOk) {   // any non-right click (some air mice report no button flag)
+                    ev.changes.forEach { it.consume() }; downAt = now
+                    // the cursor wins if it moved onto an item after the last arrow press; otherwise the D-pad selection wins
+                    val target = M5.hoverTarget.takeIf { M5.editing == null && M5.hoverAt > M5.lastArrowAt }
+                    view.requestFocusFromTouch()   // the click put the window in touch mode, where most items can't hold focus
+                    if (target != null) runCatching { target.requestFocus() } else FocusMem.restore(FocusMem.last)
+                    android.util.Log.i("StarshineInput", "click -> " + (if (target != null) "item under cursor" else "selected item") + " focus=" + FocusMem.current + " viewFocused=" + view.isFocused)
+                    M5.logKey(if (target != null) "Mouse click → item under cursor" else "Mouse click → OK on selected item")
+                    view.dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_CENTER, 0))
+                    hold = scope.launch {
+                        delay(550); val t = SystemClock.uptimeMillis()
+                        view.dispatchKeyEvent(android.view.KeyEvent(downAt, t, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_CENTER, 1))
+                    }
+                } else if (ev.type == PointerEventType.Release && downAt != 0L) {
+                    ev.changes.forEach { it.consume() }; hold?.cancel()
+                    view.dispatchKeyEvent(android.view.KeyEvent(downAt, SystemClock.uptimeMillis(), android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_CENTER, 0)); downAt = 0L
+                }
+            }
+        }
+    }.onPreviewKeyEvent { e ->
+        lastInput = System.currentTimeMillis()
+        if (Bg2.fullPreview || Drone.immersive) { if (e.type == KeyEventType.KeyDown) { Bg2.fullPreview = false; Drone.immersive = false; swallowUp = e.key }; return@onPreviewKeyEvent true }
+        if (e.type == KeyEventType.KeyDown && isArrow(e.key)) M5.lastArrowAt = SystemClock.uptimeMillis()
+        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0)
+            android.util.Log.i("StarshineInput", "key " + android.view.KeyEvent.keyCodeToString(e.nativeKeyEvent.keyCode) + " from " + (e.nativeKeyEvent.device?.name ?: "injected"))
+        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0)
+            M5.logKey(android.view.KeyEvent.keyCodeToString(e.nativeKeyEvent.keyCode).removePrefix("KEYCODE_") + "  ·  " + (e.nativeKeyEvent.device?.name ?: "injected"))
+        when {
+            positioning && e.type == KeyEventType.KeyDown -> {
+                val fast = e.nativeKeyEvent.repeatCount > 3
+                val st = if (fast) 0.02f else 0.005f
+                val zf = if (fast) 1.04f else 1.01f
+                when {
+                    e.isOk() && e.nativeKeyEvent.repeatCount == 0 -> posZoom = !posZoom
+                    posZoom && (e.key == Key.DirectionUp || e.key == Key.DirectionRight) -> { uiScale *= zf; prefs.uiScale = uiScale }
+                    posZoom && (e.key == Key.DirectionDown || e.key == Key.DirectionLeft) -> { uiScale = (uiScale / zf).coerceAtLeast(0.02f); prefs.uiScale = uiScale }
+                    e.key == Key.DirectionLeft -> offX -= st
+                    e.key == Key.DirectionRight -> offX += st
+                    e.key == Key.DirectionUp -> offY -= st
+                    e.key == Key.DirectionDown -> offY += st
+                    e.key == Key.Menu -> resetLayout()
+                    e.isOk() -> {}
+                    else -> { positioning = false; posZoom = false; savePos() }
+                }
+                true
+            }
+            positioning -> true
+            // gamepad-style OK (some air mice): Compose clickable only knows centre/Enter, so hand it a real centre press
+            e.key == Key.ButtonSelect || e.key == Key.ButtonA -> {
+                val n = e.nativeKeyEvent
+                view.dispatchKeyEvent(android.view.KeyEvent(n.downTime, n.eventTime, n.action, android.view.KeyEvent.KEYCODE_DPAD_CENTER, n.repeatCount))
+                true
+            }
+            // held arrows keep moving: short grace period (a normal press stays one step), then a steady rate
+            e.type == KeyEventType.KeyDown && isArrow(e.key) && e.nativeKeyEvent.repeatCount > 0 &&
+                !(M5.editing != null && (e.key == Key.DirectionLeft || e.key == Key.DirectionRight)) -> {
+                val n = e.nativeKeyEvent
+                // a long press stays one step; repeats that arrive late (busy UI, Bluetooth lag) are dropped so the selection stops when you let go
+                val stale = SystemClock.uptimeMillis() - n.eventTime > 120L
+                if (stale || n.eventTime - n.downTime < 500L || n.eventTime - lastRepeat[0] < 170L) true else { lastRepeat[0] = n.eventTime; false }
+            }
+            e.type == KeyEventType.KeyDown && (e.key == Key.Search || e.key == Key.VoiceAssist) -> { startVoice(); true }
+            swallowUp != null && e.type == KeyEventType.KeyUp && e.key == swallowUp -> { swallowUp = null; true }
+            e.type == KeyEventType.KeyDown && e.isOk() && e.nativeKeyEvent.repeatCount == 0 && focusIsHidden(dockHidden && tab == Tab.Home, topHidden) -> { dockHidden = false; topHidden = false; swallowUp = e.key; true }
+            (dockHidden || topHidden) && e.type == KeyEventType.KeyDown -> { dockHidden = false; topHidden = false; false }
+            e.type == KeyEventType.KeyDown && e.key == Key.Menu && M5.editing == null -> { m5Action(M5.menuKey); true }
+            else -> false
+        }
+    }) {
+        LaunchedEffect(bg) {
+            Nebula.alpha = prefs.nebulaA
+            Nebula.image = if (bg == "Starfield") withContext(Dispatchers.Default) { Nebula.load(ctx, prefs.nebula) } else null
+        }
+        val reactive = remember(bg, top) { prefs.reactive(bg) }
+        val classicView = Bg2.classicView
+        if (tab == Tab.Drone) DroneStage()
+        else if (tab == Tab.Bg && classicView == null) Bg2Stage(fps30)
+        else if (tab == Tab.Bg) Background(classicView!!, style, fps30, remember(classicView, top) { prefs.reactive(classicView!!) })
+        else if (bgOn) Background(bg, style, fps30, reactive)
+        if (dimOn && tab != Tab.Drone) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim.coerceIn(0f, 1f))))
+        if (tab != Tab.Drone && (tab != Tab.Bg || classicView != null)) SoundVisualizer(visual, visualI, style.hue, Modifier.fillMaxSize())
+
+        // main screen is only composed when no modal is open, so nothing behind a modal can take focus
+        BoxWithConstraints(Modifier.fillMaxSize()) { Box(
+            Modifier.fillMaxSize()
+                .offset(x = maxWidth * offX, y = maxHeight * offY)
+                .padding(horizontal = maxWidth * inset, vertical = maxHeight * inset)
+                .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (Bg2.fullPreview || Drone.immersive) 0f else 1f }
+        ) {
+        if (top == null) {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.graphicsLayer { translationY = topOffset.value.toPx() }) { TopBar(tab, onTab = { if (moving == null) tab = it }, onClock = { openModal("quick") },
+                    onRam = { cleanRam() }, onVoice = { startVoice() }, onApps = { openModal("apps") }) }
+                Box(Modifier.weight(1f).fillMaxWidth()
+                    .focusProperties { exit = { d -> if (d == FocusDirection.Up) (FocusMem.map["tab:${tab.name}"] ?: FocusRequester.Default) else FocusRequester.Default } }
+                    .focusGroup()) {
+                    when (tab) {
+                        Tab.Home -> Column(Modifier.align(Alignment.BottomCenter).graphicsLayer { translationY = dockOffset.value.toPx() }.padding(bottom = 22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            NowPlayingCard()
+                            if (showResume && jfToken.isNotEmpty()) ContinueWatching(prefs.jellyfin, jfToken, prefs.jfUser, refresh) { launch(ctx, JELLYFIN_PKG) }
+                            Dock(
+                                items = if (apps.isEmpty()) emptyList() else dock.mapNotNull { resolve(it, apps) }, moving = moving, tileWidth = (128 * dockScale).toInt().coerceAtLeast(24),
+                                onLaunch = {
+                                    if (it.id == BLISS_ID) {
+                                        val easy = apps.find { a -> a.id == EASYCONTROL } ?: apps.find { a -> a.label.contains("easycontrol", true) }
+                                        if (easy != null) launch(ctx, easy.id) else openModal("bliss")
+                                    } else launch(ctx, it.id, browser)
+                                },
+                                onStartMove = { moving = it },
+                                onMove = { id, dir ->
+                                    val i = dock.indexOf(id); val j = i + dir
+                                    if (i >= 0 && j in dock.indices) saveDock(dock.toMutableList().apply { add(j, removeAt(i)) })
+                                },
+                                onRemove = { id -> saveDock(dock - id); moving = null },
+                                onEndMove = { moving = null },
+                                onAdd = { openModal("add") })
+                        }
+                        Tab.Apps -> AppsGrid(apps, dock, onLaunch = { launch(ctx, it.id, browser) },
+                            onToggle = { a -> saveDock(if (a.id in dock) dock - a.id else dock + a.id) })
+                        Tab.Bg -> BgTab(presetsVersion = presetsVersion, onApply = { applyScene(it) },
+                            classics = PROCEDURAL + SHADERS + media.map { "file:" + it.name }, currentBg = bg,
+                            onClassicApply = { bg = it; prefs.bg = it; bgOn = true; prefs.bgOn = true; toast = "Background: " + it.removePrefix("file:") },
+                            onClassicEdit = { bg = it; prefs.bg = it; bgOn = true; prefs.bgOn = true; Bg2.classicView = it; openModal("bg") },
+                            onBuild = { Bg2.classicView = null; openModal("bg2edit") },
+                            onNew = { Bg2.classicView = null; val b = Bg2.blank(); Bg2.preview = b; lastBrowsedScene = b.name; openModal("bg2edit") },
+                            onFiles = { openModal("files") },
+                            onExport = { toast = "Rendering 15 s of ${Bg2.preview.name}…"; Exporter.exportScene(ctx, Bg2.preview) { f -> toast = if (f != null) "Saved to " + Exporter.publicName.ifEmpty { f.name } else "Export failed" } },
+                            onAudioMood = { m -> if (m.ambient == "Off") stopSound() else if (Sound.current == m.ambient) stopSound() else playAmbient(m.ambient) },
+                            onAmbient = { if (Sound.current == it) stopSound() else playAmbient(it) }, onTone = { if (Sound.current == it.name) stopSound() else playTone(it) },
+                            onStop = { stopSound() }, onGenerator = { openModal("tone") })
+                        Tab.Drone -> DroneTab()
+                        Tab.Settings -> SettingsTab { if (it == "Files") openModal("files") else openModal("set:$it") }
+                    }
+                }
+            }
+        }
+
+        // ---------------- modals ----------------
+        when (top) {
+            null -> {}
+            "bg" -> ModalFrame("Background · ${bg.removePrefix("file:")}", "OK on a row = edit · ← → change · Back = done") { first ->
+                BackgroundSettings(first, bg, style, folder = ctx.getExternalFilesDir("backgrounds")?.absolutePath ?: "",
+                    onStyle = { setStyle(it) },
+                    onSaver = { prefs.saverBg = bg; toast = "Screensaver uses: $bg" },
+                    onExport = {
+                        if (bg in PROCEDURAL) { toast = "Rendering 15 s video of $bg…"; Exporter.export(ctx, bg, style) { f -> toast = if (f != null) "Saved to " + Exporter.publicName.ifEmpty { f.name } else "Export failed" } }
+                        else toast = "Video export works for the 10 classic animated backgrounds (not GPU shaders or files)"
+                    })
+            }
+            "tone" -> ModalFrame("Frequency generator", "OK on a row = edit · ← → change · Back = done", width = 520) { first ->
+                ToneEditor(first, onPlay = { playTone(it) }, onStop = { stopSound() }, onSaved = { presetsVersion++ })
+            }
+            "quick" -> ModalFrame("Quick panel", "Clock, Menu key or long-press Home (any app) · Back = close", width = 820) { first ->
+                QuickPanel(first, sleepAt = sleepAt, glasses = glasses, presetsVersion = presetsVersion,
+                    bgOn = bgOn, onBgOn = { bgOn = it; prefs.bgOn = it }, dimOn = dimOn, onDimOn = { dimOn = it; prefs.dimOn = it },
+                    onSoundToggle = {
+                        if (Sound.current.isNotEmpty()) { val keep = prefs.lastSound; stopSound(); prefs.lastSound = keep }
+                        else { val l = prefs.lastSound
+                            if (l.startsWith("t:")) Tones.loadPresets(ctx).find { it.name == l.removePrefix("t:") }?.let { playTone(it) }
+                            else if (l.startsWith("a:")) playAmbient(l.removePrefix("a:")) else toast = "Choose a sound below first" }
+                    },
+                    onFiles = { closeModal(); openModal("files") }, showLayers = bg == BG2_ID,
+                    onSleep = { sleepAt = it; toast = if (it == 0L) "Sleep timer off" else "Sleep in ${(it - System.currentTimeMillis()) / 60000 + 1} min" },
+                    onGlasses = { glasses = it; prefs.glasses = it },
+                    onPosition = { closeModal(); positioning = true },
+                    onVoice = { closeModal(); startVoice() },
+                    onRam = { cleanRam() },
+                    onAudioMood = { m -> if (m.ambient == "Off" || Sound.current == m.ambient) stopSound() else playAmbient(m.ambient) },
+                    onAmbient = { if (Sound.current == it) stopSound() else playAmbient(it) }, onTone = { if (Sound.current == it.name) stopSound() else playTone(it) }, onStop = { stopSound() },
+                    onHelp = { openModal("help") }, onVisual = { visual = it },
+                    onGesture = { closeModal(); gestureArmed = true; trail.clear() })
+            }
+            "bg2edit" -> BgEditor(onClose = { closeModal() }, onApply = { s -> Bg2.setCurrent(ctx, s); bg = BG2_ID; prefs.bg = BG2_ID; bgOn = true; prefs.bgOn = true },
+                onToast = { toast = it }, onPickMedia = { pickForNode = it; openModal("pick") })
+            "files" -> ModalFrame("Files", "OK = open · Back = up one level", width = 620) { first ->
+                FileExplorer(first,
+                    onUseAsBackground = { f -> val n = "file:" + f.absolutePath; bg = n; prefs.bg = n; bgOn = true; prefs.bgOn = true; toast = "Background: " + f.name },
+                    onAddToBgLayers = { f ->
+                        val sc = if (tab == Tab.Bg) Bg2.preview else Bg2.current
+                        val next = sc.copy(layers = sc.layers + Layer(sc.nextId, "Media file", media = f.absolutePath))
+                        when {
+                            sc.layers.size >= 8 -> toast = "8 nodes is the limit for this device"
+                            tab == Tab.Bg -> { Bg2.preview = next; toast = "Added ${f.name} to the preview. Apply it to see it as background" }
+                            else -> { Bg2.setCurrent(ctx, next); Bg2.preview = next; bg = BG2_ID; prefs.bg = BG2_ID; toast = "Added ${f.name} to ${sc.name}" }
+                        }
+                    },
+                    onToast = { toast = it })
+            }
+            "pick" -> ModalFrame("Choose a file for this node", "OK = choose · Back = up one level", width = 620) { first ->
+                FileExplorer(first, pick = { f ->
+                    val sc = Bg2.preview
+                    Bg2.preview = sc.copy(layers = sc.layers.map { if (it.id == pickForNode) it.copy(media = f.absolutePath) else it }); closeModal()
+                }, onUseAsBackground = {}, onAddToBgLayers = {}, onToast = { toast = it })
+            }
+            "bliss" -> ModalFrame("Bliss OS", "Back = close", width = 600) { first ->
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    item { Box(Modifier.focusRequester(first)) { Row_("Bliss OS runs at ${BuildConfig.BLISS}. It opens here through the Easycontrol app.", false, id = "bliss:1", onFocus = {}) {} } }
+                    item { Text("1. On the PC, open the Rokid TV Toolkit → Bliss OS → \"Install Easycontrol on the Rokid pod\".", color = FG, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp)) }
+                    item { Text("2. Open this tile again → Easycontrol → add device: ${BuildConfig.BLISS}.", color = FG, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp)) }
+                    item { Text("3. The first time, accept the \"Allow USB debugging\" prompt on the Bliss OS screen (use the toolkit's Bliss OS → Mirror to see it on the PC).", color = FG, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp)) }
+                }
+            }
+            "help" -> HelpViewer { closeModal() }
+            "apps" -> ModalFrame("Open apps", "OK = switch · hold OK = close app · Back = close", width = 380, alignTop = true) { first ->
+                OpenAppsList(first, apps, browser, prefs.jellyfin, onDone = { closeModal() }, onToast = { toast = it })
+            }
+            "add" -> AddPicker(
+                candidates = apps.filter { it.id !in dock } + WEB_PRESETS.filter { it !in dock }.map { webEntry(it) } +
+                    (if (SETTINGS_ID in dock) emptyList() else listOf(AppEntry(SETTINGS_ID, "Android Settings"))),
+                onPick = { saveDock(dock + it.id); closeModal() })
+            "m5" -> M5Panel(onClose = { closeModal() })
+            "qc" -> QuickConnectDialog(prefs.jellyfin,
+                onDone = { token, user -> jfToken = token; prefs.jfToken = token; prefs.jfUser = user; closeModal(); toast = "Jellyfin connected" },
+                onClose = { closeModal() })
+            "set:Gestures" -> ModalFrame("Gestures", "OK = edit · Back = done", width = 620) { first ->
+                GestureList(first, gestures, describe = { Gestures.describe(it) { id -> apps.find { a -> a.id == id }?.label } },
+                    onEdit = { openModal("gesture:$it") },
+                    onRecord = { modals = emptyList(); recordingGesture = true; gestureArmed = true; toast = "Draw the new gesture: hold the right button and move, or move then click" },
+                    onReset = { gestures = LinkedHashMap(Gestures.DEFAULTS).also { Gestures.save(ctx, it) }; toast = "All gestures reset to the 6 examples" },
+                    onRemove = { p -> gestures = LinkedHashMap(gestures).apply { remove(p) }.also { Gestures.save(ctx, it) }; toast = "Removed " + Gestures.arrows(p) },
+                    onSave = { Gestures.save(ctx, gestures); toast = "Gestures saved (" + gestures.size + ")" })
+            }
+            else -> if (top.startsWith("gesture:")) {
+                val pat = top.removePrefix("gesture:")
+                ModalFrame("Gesture " + Gestures.arrows(pat), "OK on Action = edit · ← → choose · Back = done", width = 620) { first ->
+                    val presets = remember { Tones.loadPresets(ctx) }
+                    val choices = remember(apps, presets) {
+                        listOf("ui:home", "ui:quick", "ui:apps", "ui:voice", "ui:saver", "bg:+1", "bg:-1", "sound:stop") +
+                            (MOODS.map { it.name } + Ambient.MODES.drop(1) + presets.map { it.name }).map { "mood:$it" } +
+                            allBgs().map { "bg:$it" } + apps.map { "app:" + it.id }
+                    }
+                    GestureEditor(first, gestures[pat] ?: "ui:home", choices,
+                        describe = { Gestures.describe(it) { id -> apps.find { a -> a.id == id }?.label } },
+                        onSet = { code -> gestures = LinkedHashMap(gestures).apply { put(pat, code) }.also { Gestures.save(ctx, it) } },
+                        onDelete = { gestures = LinkedHashMap(gestures).apply { remove(pat) }.also { Gestures.save(ctx, it) }; closeModal() })
+                }
+            } else if (top.startsWith("set:")) {
+                val cat = top.removePrefix("set:")
+                ModalFrame(cat, "OK on a row = edit / open · ← → change · Back = done", width = 560) { first ->
+                    SettingsCategory(cat, first,
+                        dockScale = dockScale, hideSecs = hideSecs, uiScale = uiScale, glasses = glasses, offX = offX, offY = offY, fps30 = fps30,
+                        ambientVol = ambientVol, browser = browser, showResume = showResume, signedIn = jfToken.isNotEmpty(),
+                        dim = dim, onDim = { dim = it; prefs.dim = it },
+                        onDock = { dockScale = it; prefs.dockScale = it }, onHide = { hideSecs = it; prefs.hideSecs = it },
+                        topHideSecs = topHideSecs, onTopHide = { topHideSecs = it; prefs.topHideSecs = it },
+                        onUi = { uiScale = it; prefs.uiScale = it }, onGlasses = { glasses = it; prefs.glasses = it },
+                        onOffset = { x, y -> offX = x; offY = y; savePos() }, onResetLayout = { resetLayout() }, onPosition = { modals = emptyList(); positioning = true },
+                        onFps = { fps30 = it; prefs.fps30 = it },
+                        onAmbientVol = { ambientVol = it; prefs.ambientVol = it; Sound.setAmbientVolume(it) },
+                        onStopSound = { stopSound() }, onGenerator = { openModal("tone") },
+                        onBrowser = { browser = it; prefs.browser = it }, onResume = { showResume = it; prefs.showResume = it },
+                        onJellyfin = { if (jfToken.isEmpty()) openModal("qc") else { jfToken = ""; prefs.jfToken = ""; prefs.jfUser = ""; toast = "Signed out of Jellyfin" } },
+                        onCalibrate = { openModal("m5") }, onHelp = { openModal("help") },
+                        onResetDock = { saveDock(DEFAULT_DOCK); toast = "Dock reset" },
+                        onExit = {
+                            ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE).edit().putBoolean("homeOverride", false).apply()
+                            open(ctx, Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(GOOGLE_HOME))
+                            (ctx as? Activity)?.finishAndRemoveTask()
+                        },
+                        open = { open(ctx, it) })
+                }
+            }
+        }
+
+        } }  // transform box + BoxWithConstraints
+
+        if (!Drone.immersive) Watermark()
+
+        if (trail.size > 1) Canvas(Modifier.fillMaxSize()) {
+            val p = Path().apply { moveTo(trail[0].x, trail[0].y); for (i in 1 until trail.size) lineTo(trail[i].x, trail[i].y) }
+            drawPath(p, VIOLET.copy(alpha = 0.25f), style = Stroke(22f, cap = StrokeCap.Round))
+            drawPath(p, Color.White.copy(alpha = 0.9f), style = Stroke(5f, cap = StrokeCap.Round))
+        }
+        if (gestureArmed && trail.size <= 1) Text("✍ Move the M5 to draw your gesture, then click", color = FG, fontSize = 14.sp,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
+                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(50)).border(1.dp, VIOLET, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp))
+        if (positioning) Box(Modifier.fillMaxSize().border(2.dp, VIOLET.copy(alpha = 0.6f))) {
+            Text((if (posZoom) "🔍 ZOOM · ↑ → bigger · ↓ ← smaller" else "✥ MOVE · arrows move") + " (hold = faster) · OK = switch move/zoom · Menu = reset · Back = done   (x ${pct(offX)}, y ${pct(offY)}, zoom ${pct(uiScale)})",
+                color = FG, fontSize = 13.sp, modifier = Modifier.align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(12.dp)).border(1.dp, VIOLET, RoundedCornerShape(12.dp)).padding(14.dp))
+        }
+        if (listening) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🎤", fontSize = 48.sp)
+                Text(if (heard.isEmpty()) "Listening… say e.g. \"open Jellyfin\", \"mood calm\", \"play rain\"" else heard, color = FG, fontSize = 16.sp, modifier = Modifier.padding(top = 10.dp))
+                Text("Back = cancel", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+        if (toast.isNotEmpty()) Text(toast, color = FG, fontSize = 13.sp,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
+                .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(50)).border(1.dp, CYAN.copy(alpha = 0.4f), RoundedCornerShape(50))
+                .padding(horizontal = 16.dp, vertical = 8.dp))
+    }
+    }
+}
+
+/* ---------------- top bar ---------------- */
+// (Launcher ends above; its root is wrapped in the theme font provider)
+
+@Composable
+private fun TopBar(tab: Tab, onTab: (Tab) -> Unit, onClock: () -> Unit, onRam: () -> Unit, onVoice: () -> Unit, onApps: () -> Unit) {
+    val ctx = LocalContext.current
+    val now by produceState(Date()) { while (true) { value = Date(); delay(5_000) } }
+    val ram by produceState(SystemInfo.ram(ctx), Unit) { while (true) { value = SystemInfo.ram(ctx); delay(5_000) } }
+    Row(Modifier.fillMaxWidth()
+        .focusProperties { exit = { d -> if (d == FocusDirection.Down) (FocusMem.lastContent?.let { FocusMem.map[it] } ?: FocusRequester.Default) else FocusRequester.Default } }
+        .focusGroup().padding(horizontal = 36.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        var clockFocused by remember { mutableStateOf(false) }
+        Column(Modifier.remembered("clock").onFocusChanged { clockFocused = it.isFocused }.focusOnHover().clickable { onClock() }
+            .background(if (clockFocused) VIOLET.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(1.dp, if (clockFocused) VIOLET else Color.Transparent, RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(now), color = FG, fontSize = 24.sp, fontWeight = FontWeight.Light)
+            Text(if (clockFocused) "OK = quick panel" else SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now), color = DIM, fontSize = 9.sp)
+        }
+        Spacer(Modifier.width(22.dp))
+        Tab.entries.filter { it != Tab.Drone || Drone.menuOn }.forEach { t ->
+            var focused by remember { mutableStateOf(false) }
+            val on = t == tab
+            // tabs switch only on OK (no switching just by passing over them)
+            Box(
+                Modifier.padding(end = 8.dp).remembered("tab:${t.name}").onFocusChanged { focused = it.isFocused }.focusOnHover()
+                    .clickable { onTab(t) }
+                    .background(if (focused) VIOLET.copy(alpha = 0.25f) else if (on) Color.White.copy(alpha = 0.07f) else Color.Transparent, RoundedCornerShape(50))
+                    .border(1.dp, if (focused) VIOLET else Color.Transparent, RoundedCornerShape(50))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // same vertical centre as the Voice / RAM / Apps pills; the active dot no longer pushes the text up
+                Text(t.title.uppercase(), color = if (on || focused) FG else DIM, fontSize = 11.sp, letterSpacing = 1.3.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+                if (on) Box(Modifier.align(Alignment.BottomCenter).offset(y = 6.dp).size(3.dp).background(VIOLET, CircleShape))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Pill(VIOLET, "🎤", "Voice command", onVoice, id = "pill:voice")
+            Pill(if (ram.usedPct < 70) GREEN else if (ram.usedPct < 85) AMBER else RED, "RAM ${ram.usedPct}%", "RAM ${ram.availMb} MB free · OK = clean", onRam, id = "pill:ram")
+            Pill(VIOLET, "Apps ▾", "Open apps", onApps, id = "pill:apps")
+        }
+    }
+}
+
+/* ---------------- modal frame ---------------- */
+
+@Composable
+fun ModalFrame(title: String, hint: String, width: Int = 480, alignTop: Boolean = false, content: @Composable (FocusRequester) -> Unit) {
+    val first = remember { FocusRequester() }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = Theme.scrimAlpha))) {
+        Column(
+            Modifier.align(if (alignTop) Alignment.TopEnd else Alignment.Center).padding(if (alignTop) 60.dp else 24.dp)
+                .width(width.dp).heightIn(max = 470.dp)
+                .background(Color(0xFF060C14).copy(alpha = (Theme.panelAlpha + 0.33f).coerceAtMost(0.98f)), RoundedCornerShape(18.dp)).border(1.dp, CYAN.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
+                .padding(18.dp)
+        ) {
+            Text(title.uppercase(), color = CYAN, fontSize = 13.sp, letterSpacing = 1.5.sp)
+            Text(hint, color = DIM, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
+            content(first)
+        }
+    }
+    LaunchedEffect(Unit) { delay(70); runCatching { first.requestFocus() } }
+}
+
+@Composable
+private fun Overlay(title: String, hint: String, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(44.dp)) {
+        Column {
+            Text(title, color = CYAN, fontSize = 13.sp, letterSpacing = 1.5.sp)
+            Text(hint, color = DIM, fontSize = 11.sp, modifier = Modifier.padding(bottom = 14.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+fun Header(t: String) = Text(t.uppercase(), color = DIM, fontSize = 9.sp, letterSpacing = 1.3.sp, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+
+/* ---------------- Settings tab: categories, each opens its own modal ---------------- */
+
+private val SETTINGS_ICONS = mapOf(
+    "Display & position" to "🖥", "Theme" to "🎨", "Drone" to "🛸", "Files" to "📁", "Sound" to "🔊", "Voice setup" to "🎤", "M5 air mouse" to "🖱",
+    "Gestures" to "✍", "Web & Jellyfin" to "🌐", "Screensaver" to "✨", "Dock" to "🚀", "System" to "⚙", "About & exit" to "ℹ"
+)
+
+/** Icon and name for each category. The description appears after the selection rests on one for 3 seconds. */
+@Composable
+fun SettingsTab(onOpen: (String) -> Unit) {
+    var selected by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    LaunchedEffect(selected) { description = ""; if (selected.isNotEmpty()) { delay(3000); description = SETTINGS_CATS.firstOrNull { it.first == selected }?.second ?: "" } }
+    Box(Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 4.dp)) {
+        LazyVerticalGrid(GridCells.Fixed(5), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 44.dp)) {
+            items(SETTINGS_CATS, key = { it.first }) { (name, _) ->
+                var focused by remember { mutableStateOf(false) }
+                Column(Modifier.remembered("cat:$name").onFocusChanged { focused = it.isFocused; if (it.isFocused) selected = name else if (selected == name) selected = "" }.focusOnHover().clickable { onOpen(name) }
+                    .background(if (focused) CYAN.copy(alpha = 0.14f) else Color.Black.copy(alpha = Theme.panelAlpha), RoundedCornerShape(14.dp))
+                    .border(if (focused) 2.dp else 1.dp, if (focused) CYAN else CYAN.copy(alpha = 0.14f), RoundedCornerShape(14.dp)).padding(vertical = 14.dp, horizontal = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(SETTINGS_ICONS[name] ?: "•", fontSize = 26.sp, color = FG)
+                    Text(name, color = if (focused) FG else DIM, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        }
+        if (description.isNotEmpty()) Text(description, color = FG, fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
+            .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(10.dp)).border(1.dp, CYAN.copy(alpha = 0.3f), RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 7.dp))
+    }
+}
+
+@Composable
+fun SettingsCategory(
+    cat: String, first: FocusRequester,
+    dockScale: Float, hideSecs: Float, uiScale: Float, glasses: Boolean, offX: Float, offY: Float, fps30: Boolean,
+    ambientVol: Float, browser: String, showResume: Boolean, signedIn: Boolean, dim: Float, onDim: (Float) -> Unit,
+    onDock: (Float) -> Unit, onHide: (Float) -> Unit, topHideSecs: Float, onTopHide: (Float) -> Unit, onUi: (Float) -> Unit, onGlasses: (Boolean) -> Unit,
+    onOffset: (Float, Float) -> Unit, onResetLayout: () -> Unit, onPosition: () -> Unit, onFps: (Boolean) -> Unit,
+    onAmbientVol: (Float) -> Unit, onStopSound: () -> Unit, onGenerator: () -> Unit,
+    onBrowser: (String) -> Unit, onResume: (Boolean) -> Unit, onJellyfin: () -> Unit,
+    onCalibrate: () -> Unit, onHelp: () -> Unit, onResetDock: () -> Unit, onExit: () -> Unit, open: (Intent) -> Unit
+) {
+    val sctx = LocalContext.current
+    var ptr by remember { mutableStateOf(M5.pointerSpeed(sctx)) }
+    var ptrMsg by remember { mutableStateOf("") }
+    fun m5(change: () -> Unit) { change(); M5.save(sctx) }
+    fun cyc(list: List<String>, cur: String, d: Int) = list[(list.indexOf(cur).coerceAtLeast(0) + d + list.size) % list.size]
+    val bi = BROWSERS.indexOfFirst { it.first == browser }.coerceAtLeast(0)
+    val f = Modifier.focusRequester(first)
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        when (cat) {
+            "Display & position" -> {
+                item { Box(f) { Adjust("AR dim, all backgrounds (black = see-through)", pct(dim), { onDim((dim - 0.05f).coerceAtLeast(0f)) }) { onDim((dim + 0.05f).coerceAtMost(1f)) } } }
+                item { Adjust("Graphics quality", Bg2.QUALITY[Bg2.quality], { Bg2.setQuality(sctx, (Bg2.quality + 2) % 3) }) { Bg2.setQuality(sctx, (Bg2.quality + 1) % 3) } }
+                item { Adjust("Dock size", pct(dockScale), { onDock((dockScale - 0.05f).coerceAtLeast(0.2f)) }) { onDock(dockScale + 0.05f) } }
+                item { Adjust("Auto-hide dock after", if (hideSecs <= 0f) "never" else "${hideSecs.toInt()} s", { onHide((hideSecs - 1f).coerceAtLeast(0f)) }) { onHide(hideSecs + 1f) } }
+                item { Adjust("Auto-hide top menu after", if (topHideSecs <= 0f) "never" else "${topHideSecs.toInt()} s", { onTopHide((topHideSecs - 5f).coerceAtLeast(0f)) }) { onTopHide(topHideSecs + 5f) } }
+                item { Adjust("Zoom (UI scale, no limits)", pct(uiScale), { onUi((uiScale - 0.05f).coerceAtLeast(0.02f)) }) { onUi(uiScale + 0.05f) } }
+                item { Adjust("Glasses mode (centered safe zone)", if (glasses) "on" else "off", { onGlasses(!glasses) }) { onGlasses(!glasses) } }
+                item { Adjust("Horizontal position", pct(offX), { onOffset(offX - 0.01f, offY) }) { onOffset(offX + 0.01f, offY) } }
+                item { Adjust("Vertical position", pct(offY), { onOffset(offX, offY - 0.01f) }) { onOffset(offX, offY + 0.01f) } }
+                item { Row_("✥ Move & zoom with arrows (OK switches move/zoom)", false, onFocus = {}) { onPosition() } }
+                item { Row_("Reset layout to full screen (position, zoom, glasses mode)", false, onFocus = {}) { onResetLayout() } }
+                item { Adjust("Animation frame rate", if (fps30) "30 fps · Eco" else "60 fps · Smooth", { onFps(!fps30) }) { onFps(!fps30) } }
+            }
+            "Sound" -> {
+                item { Box(f) { Adjust("Ambient volume", pct(ambientVol), { onAmbientVol((ambientVol - 0.05f).coerceAtLeast(0f)) }) { onAmbientVol((ambientVol + 0.05f).coerceAtMost(1f)) } } }
+                item { Row_("■ Stop sound", false, onFocus = {}) { onStopSound() } }
+                item { VisualSettings() }
+                item { Row_("〰 Frequency generator & presets…", false, onFocus = {}) { onGenerator() } }
+                item { Text("Moods play on the Home screen and in silent apps. They pause automatically when any app plays audio and resume when it stops. Frequency volume is in the generator.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+            }
+            "Voice setup" -> { item { Box(f) { VoiceSetup() } } }
+            "Drone" -> { item { Box(f) { DroneRows(showOptOut = true) } } }
+            "Theme" -> { item { Box(f) { ThemeRows() } } }
+            "M5 air mouse" -> {
+                item { Box(f) { Row_("🎯 Test, button map & auto-calibrate  ›", false, onFocus = {}) { onCalibrate() } } }
+                item { Adjust("Click = OK on selected item", if (M5.clickAsOk) "on" else "off", { m5 { M5.clickAsOk = !M5.clickAsOk } }) { m5 { M5.clickAsOk = !M5.clickAsOk } } }
+                item { Adjust("Hover selects items", if (M5.hoverSelect) "on" else "off (1 press = 1 move)", { m5 { M5.hoverSelect = !M5.hoverSelect } }) { m5 { M5.hoverSelect = !M5.hoverSelect } } }
+                item { Adjust("Hover delay", "${M5.dwellMs} ms", { m5 { M5.dwellMs = (M5.dwellMs - 50).coerceAtLeast(0) } }) { m5 { M5.dwellMs += 50 } } }
+                item { Adjust("Jitter guard", "${M5.deadzone.toInt()} px", { m5 { M5.deadzone = (M5.deadzone - 2f).coerceAtLeast(0f) } }) { m5 { M5.deadzone += 2f } } }
+                item { Adjust("Lock setting while editing", if (M5.editLock) "on" else "off", { m5 { M5.editLock = !M5.editLock } }) { m5 { M5.editLock = !M5.editLock } } }
+                item { Adjust("Right click does", M5.rightClick, { m5 { M5.rightClick = cyc(M5.ACTIONS_RIGHT, M5.rightClick, -1) } }) { m5 { M5.rightClick = cyc(M5.ACTIONS_RIGHT, M5.rightClick, +1) } } }
+                item { Adjust("Menu key does", M5.menuKey, { m5 { M5.menuKey = cyc(M5.ACTIONS_MENU, M5.menuKey, -1) } }) { m5 { M5.menuKey = cyc(M5.ACTIONS_MENU, M5.menuKey, +1) } } }
+                item { CursorSwitch() }
+                item { Adjust("Cursor motion speed (system)", ptrMsg.ifEmpty { ptr?.toString() ?: "?" },
+                    { ptrMsg = if (M5.setPointerSpeed(sctx, (ptr ?: 0) - 1)) "" else "use PC toolkit → M5 Remote"; ptr = M5.pointerSpeed(sctx) }) {
+                    ptrMsg = if (M5.setPointerSpeed(sctx, (ptr ?: 0) + 1)) "" else "use PC toolkit → M5 Remote"; ptr = M5.pointerSpeed(sctx) } }
+            }
+            "Web & Jellyfin" -> {
+                item { Box(f) { Adjust("Browser for web tiles", BROWSERS[bi].second, { onBrowser(BROWSERS[(bi - 1 + BROWSERS.size) % BROWSERS.size].first) }) { onBrowser(BROWSERS[(bi + 1) % BROWSERS.size].first) } } }
+                item { Adjust("Jellyfin Continue watching row", if (showResume) "show" else "hide", { onResume(!showResume) }) { onResume(!showResume) } }
+                item {
+                    var url by remember { mutableStateOf(Prefs(sctx).jellyfin) }
+                    Row_("Jellyfin server: " + url.ifEmpty { "not set" } + "  ›", false, id = "set:jfurl", onFocus = {}) {
+                        val box = android.widget.EditText(sctx).apply { setText(url.ifEmpty { "http://" }); setSingleLine() }
+                        android.app.AlertDialog.Builder(sctx).setTitle("Jellyfin server address").setView(box)
+                            .setPositiveButton("Save") { _, _ -> url = box.text.toString().trim().trimEnd('/'); Prefs(sctx).jellyfin = url }
+                            .setNegativeButton("Cancel", null).show()
+                    }
+                }
+                item { Row_(if (signedIn) "Jellyfin: signed in · sign out" else "Jellyfin: sign in with Quick Connect  ›", false, onFocus = {}) { onJellyfin() } }
+            }
+            "Screensaver" -> {
+                item { Box(f) { Row_("Choose screensaver (pick \"Starshine\")  ›", false, onFocus = {}) { open(Intent(Settings.ACTION_DREAM_SETTINGS)) } } }
+                item { Text("Use Backgrounds → Classic backgrounds → → on a background → \"Use as screensaver\" to choose what it shows.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+            }
+            "Dock" -> {
+                item { Box(f) { Row_("Reset dock to Google TV favorites order", false, onFocus = {}) { onResetDock() } } }
+                item { Text("On Home: hold OK on a tile to move (← →) or remove (↓). The + tile adds apps.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+            }
+            "System" -> {
+                item { Box(f) { HomeSwitch() } }
+                item { Row_("📶 Wi-Fi settings  ›", false, onFocus = {}) { open(Intent(Settings.ACTION_WIFI_SETTINGS)) } }
+                item { Row_("ᛒ Bluetooth settings  ›", false, onFocus = {}) { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } }
+                item { Row_("🖥 Display settings  ›", false, onFocus = {}) { open(Intent(Settings.ACTION_DISPLAY_SETTINGS)) } }
+                item { Row_("Advanced device settings (Amlogic)  ›", false, onFocus = {}) { open(Intent().setClassName("com.droidlogic.tv.settings", "com.droidlogic.tv.settings.more.MorePrefFragmentActivity")) } }
+                item { Row_("Android settings  ›", false, onFocus = {}) { open(Intent(Settings.ACTION_SETTINGS)) } }
+            }
+            else -> {
+                item { Box(f) { Row_("❓ Help  ›", false, onFocus = {}) { onHelp() } } }
+                item { SupportRows() }
+                item { Row_("⏻  Exit Starshine (Home goes to Google TV until you open Starshine again)", false, onFocus = {}) { onExit() } }
+                item { Text("Starshine 1.7 · made for Rokid Station", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+            }
+        }
+    }
+}
+
+/* ---------------- background settings modal ---------------- */
+
+@Composable
+fun BackgroundSettings(first: FocusRequester, bg: String, style: BgStyle, folder: String,
+                       onStyle: (BgStyle) -> Unit, onSaver: () -> Unit, onExport: () -> Unit) {
+    val exporting by produceState(-1f) { while (true) { value = Exporter.progress; delay(500) } }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        item { Box(Modifier.focusRequester(first)) { Adjust("Speed (negative = reverse)", f1(style.speed) + "x", { onStyle(style.copy(speed = style.speed - 0.1f)) }) { onStyle(style.copy(speed = style.speed + 0.1f)) } } }
+        item { Adjust("Density", pct(style.density), { onStyle(style.copy(density = (style.density - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(density = style.density + 0.1f)) } }
+        item { Adjust("Particle size", f1(style.size) + "x", { onStyle(style.copy(size = (style.size - 0.1f).coerceAtLeast(0.1f))) }) { onStyle(style.copy(size = style.size + 0.1f)) } }
+        item { Adjust("Glow", pct(style.glow), { onStyle(style.copy(glow = (style.glow - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(glow = style.glow + 0.1f)) } }
+        item { Adjust("Twinkle", pct(style.twinkle), { onStyle(style.copy(twinkle = (style.twinkle - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(twinkle = style.twinkle + 0.1f)) } }
+        item { Adjust("Brightness", pct(style.brightness), { onStyle(style.copy(brightness = (style.brightness - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(brightness = style.brightness + 0.1f)) } }
+        item { Adjust("Saturation", pct(style.saturation), { onStyle(style.copy(saturation = (style.saturation - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(saturation = style.saturation + 0.1f)) } }
+        item { Adjust("Vignette", pct(style.vignette), { onStyle(style.copy(vignette = (style.vignette - 0.1f).coerceAtLeast(0f))) }) { onStyle(style.copy(vignette = style.vignette + 0.1f)) } }
+        item { Adjust("Color shift", "${style.hue.toInt()}°", { onStyle(style.copy(hue = (style.hue - 15f + 360f) % 360f)) }) { onStyle(style.copy(hue = (style.hue + 15f) % 360f)) } }
+        item { ReactSwitch(bg) }
+        item { Adjust("Direction X (← left · right →)", f1(style.dirX), { onStyle(style.copy(dirX = style.dirX - 0.1f)) }) { onStyle(style.copy(dirX = style.dirX + 0.1f)) } }
+        item { Adjust("Direction Y (← up · down →)", f1(style.dirY), { onStyle(style.copy(dirY = style.dirY - 0.1f)) }) { onStyle(style.copy(dirY = style.dirY + 0.1f)) } }
+        item { Adjust("Direction Z (← away · toward →)", f1(style.dirZ), { onStyle(style.copy(dirZ = style.dirZ - 0.1f)) }) { onStyle(style.copy(dirZ = style.dirZ + 0.1f)) } }
+        item { Row_("Reset direction (straight ahead)", false, onFocus = {}) { onStyle(style.copy(dirX = 0f, dirY = 0f, dirZ = 1f)) } }
+        if (bg == "Starfield") item { NebulaRows() }
+        item { Row_("Reset look to default", false, onFocus = {}) { onStyle(BgStyle()) } }
+        item { Row_("Use this background as screensaver", false, onFocus = {}) { onSaver() } }
+        item { Row_(if (exporting >= 0f) "Rendering video… ${(exporting * 100).toInt()}%" else "Export as 15 s video loop (MP4)", false, id = "export", onFocus = {}) { onExport() } }
+        item { Text("Your own videos/GIFs: adb push file.mp4 $folder/", color = DIM, fontSize = 9.sp, modifier = Modifier.padding(top = 6.dp)) }
+    }
+}
+
+/* ---------------- quick panel (clock) ---------------- */
+
+private val quickOpen = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+
+/** Switches for individual elements. Nothing here replaces the chosen background or the global look. */
+@kotlin.OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun QuickPanel(
+    first: FocusRequester, sleepAt: Long, glasses: Boolean, presetsVersion: Int,
+    bgOn: Boolean, onBgOn: (Boolean) -> Unit, dimOn: Boolean, onDimOn: (Boolean) -> Unit, onSoundToggle: () -> Unit, onFiles: () -> Unit, showLayers: Boolean,
+    onSleep: (Long) -> Unit, onGlasses: (Boolean) -> Unit, onPosition: () -> Unit, onVoice: () -> Unit, onRam: () -> Unit,
+    onAudioMood: (AudioMood) -> Unit, onAmbient: (String) -> Unit, onTone: (Tone) -> Unit, onStop: () -> Unit, onHelp: () -> Unit = {}, onVisual: (String) -> Unit = {}, onGesture: () -> Unit = {}
+) {
+    val ctx = LocalContext.current
+    val presets = remember(presetsVersion) { Tones.loadPresets(ctx) }
+    val wifi by produceState(Pair(0, ""), Unit) {
+        val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        while (true) {
+            @Suppress("DEPRECATION") val info = runCatching { wm.connectionInfo }.getOrNull()
+            val rssi = info?.rssi ?: -127
+            val bars = when { rssi > -55 -> 4; rssi > -65 -> 3; rssi > -75 -> 2; rssi > -90 -> 1; else -> 0 }
+            val band = info?.frequency?.let { if (it > 4900) "5 GHz" else if (it > 0) "2.4 GHz" else "" } ?: ""
+            value = bars to "$band $rssi dBm"; delay(10_000)
+        }
+    }
+    val bt by produceState(SystemInfo.Bt(false, emptyList()), Unit) { while (true) { value = withContext(Dispatchers.IO) { SystemInfo.bluetooth(ctx) }; delay(15_000) } }
+    val sleepMin = if (sleepAt > 0) ((sleepAt - System.currentTimeMillis()) / 60000 + 1) else 0
+    val playing = Sound.current
+    val prefs = remember { Prefs(ctx) }
+    fun onOff(b: Boolean) = if (b) "on" else "off"
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { Header("Switch on / off") }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.focusRequester(first)) { Chip("🌌 Background: " + onOff(bgOn), id = "q:bgon") { onBgOn(!bgOn) } }
+                Chip("♪ Sound: " + onOff(playing.isNotEmpty()), id = "q:soundon") { onSoundToggle() }
+                val visOn = prefs.visual != "Off"
+                Chip("✦ Visualizer: " + onOff(visOn), id = "q:visual") {
+                    if (visOn) { prefs.lastVisual = prefs.visual; prefs.visual = "Off" } else prefs.visual = prefs.lastVisual
+                    onVisual(prefs.visual)
+                }
+                Chip("◐ AR dim: " + onOff(dimOn), id = "q:dimon") { onDimOn(!dimOn) }
+                Chip("✧ React to sound: " + onOff(Bg2.reactOn), id = "q:react") { Bg2.setReact(ctx, !Bg2.reactOn) }
+                Chip("👓 Glasses: " + onOff(glasses), id = "q:glasses") { onGlasses(!glasses) }
+            }
+        }
+        if (showLayers && bgOn) {
+            item { Header("Layers of ${Bg2.current.name}") }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Bg2.current.layers.forEach { l ->
+                        Chip((if (l.on) "● " else "○ ") + l.type, id = "q:layer:${l.id}") {
+                            val sc = Bg2.current
+                            Bg2.setCurrent(ctx, sc.copy(layers = sc.layers.map { if (it.id == l.id) it.set("on", if (it.on) 0f else 1f) else it }))
+                        }
+                    }
+                }
+            }
+        }
+        item { Header(if (playing.isEmpty()) "Audio moods · OK = on, OK again = off" else "Audio moods · now: $playing" + if (Sound.pausedByOther) " (paused)" else "") }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AUDIO_MOODS.forEach { m -> Chip((if (m.ambient != "Off" && playing == m.ambient) "▶ " else "♪ ") + m.name, id = "q:am:${m.name}") { onAudioMood(m) } }
+                Chip((if (quickOpen["freq"] == true) "▾ " else "▸ ") + "Frequencies", id = "q:open:freq") { quickOpen["freq"] = quickOpen["freq"] != true }
+                if (quickOpen["freq"] == true) presets.forEach { t -> Chip((if (playing == t.name) "▶ " else "〰 ") + t.name, id = "q:tone:${t.name}") { onTone(t) } }
+            }
+        }
+        item { Header("System") }
+        item {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("📶 Wi-Fi " + "▮".repeat(wifi.first) + "▯".repeat(4 - wifi.first) + " ${wifi.second}", id = "q:wifi") { open(ctx, Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                Chip("ᛒ Bluetooth: " + if (!bt.on) "off" else if (bt.connected.isEmpty()) "on" else bt.connected.joinToString(), id = "q:bt") { open(ctx, Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                Chip("🔉 Vol −", id = "q:vol-") { SystemInfo.volume(ctx, AudioManager.ADJUST_LOWER) }
+                Chip("🔊 Vol +", id = "q:vol+") { SystemInfo.volume(ctx, AudioManager.ADJUST_RAISE) }
+                Chip("🔇 Mute", id = "q:mute") { SystemInfo.volume(ctx, AudioManager.ADJUST_TOGGLE_MUTE) }
+                Chip("🖥 Display", id = "q:display") { open(ctx, Intent(Settings.ACTION_DISPLAY_SETTINGS)) }
+                Chip("🧹 Clean RAM", id = "q:ram") { onRam() }
+                Chip("✨ Screensaver", id = "q:saver") { SystemInfo.startScreensaver(ctx) }
+                Chip("⏾ Sleep: " + if (sleepMin > 0) "$sleepMin min" else "off", id = "q:sleep") {
+                    val steps = listOf(0L, 15L, 30L, 60L, 90L)
+                    val next = steps[(steps.indexOfFirst { it >= sleepMin }.coerceAtLeast(0) + 1) % steps.size]
+                    onSleep(if (next == 0L) 0L else System.currentTimeMillis() + next * 60_000)
+                }
+                Chip("✥ Position", id = "q:pos") { onPosition() }
+                Chip("📁 Files", id = "q:files") { onFiles() }
+                Chip("🎤 Voice", id = "q:voice") { onVoice() }
+                Chip("❓ Help", id = "q:help") { onHelp() }
+                Chip("✍ Draw gesture", id = "q:gesture") { onGesture() }
+            }
+        }
+        item { NowPlayingCard() }
+    }
+}
+
+/* ---------------- open apps: vertical drop-down ---------------- */
+
+@Composable
+fun OpenAppsList(first: FocusRequester, apps: List<AppEntry>, browser: String, jellyfinUrl: String, onDone: () -> Unit, onToast: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val jf by produceState(-1L, jellyfinUrl) {
+        while (true) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val t0 = System.currentTimeMillis()
+                    val ok = (URL("$jellyfinUrl/System/Info/Public").openConnection() as HttpURLConnection).run { connectTimeout = 3000; readTimeout = 3000; responseCode == 200 }
+                    if (ok) maxOf(1L, System.currentTimeMillis() - t0) else 0L
+                }.getOrDefault(0L)
+            }
+            delay(30_000)
+        }
+    }
+    val granted = remember { SystemInfo.hasUsageAccess(ctx) }
+    var recent by remember { mutableStateOf(SystemInfo.recentApps(ctx, apps.map { it.id }.toSet()).filter { it != JELLYFIN_PKG }.mapNotNull { id -> apps.find { it.id == id } }) }
+    var longFired by remember { mutableStateOf(false) }
+    val jellyfin = apps.find { it.id == JELLYFIN_PKG }
+    fun holdToClose(a: AppEntry): (KeyEvent) -> Boolean = { e ->
+        when {
+            !e.isOk() -> false
+            e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; SystemInfo.close(ctx, a.id); recent = recent - a; onToast("Closed ${a.label}"); true }
+            e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
+            e.type == KeyEventType.KeyUp && longFired -> { longFired = false; true }
+            else -> false
+        }
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (jellyfin != null && jellyfinUrl.isNotEmpty()) item(key = "jf") {
+            Box(Modifier.focusRequester(first)) {
+                Pill(when { jf < 0 -> DIM; jf == 0L -> RED; else -> GREEN }, "Jellyfin · " + when { jf < 0 -> "checking"; jf == 0L -> "server down"; else -> "$jf ms" },
+                    "Jellyfin · " + when { jf < 0 -> "checking"; jf == 0L -> "server unreachable"; else -> "$jf ms · OK open" },
+                    onClick = { launch(ctx, JELLYFIN_PKG); onDone() }, onKey = holdToClose(jellyfin), id = "open:jf")
+            }
+        }
+        items(recent, key = { it.id }) { a ->
+            Pill(CYAN, a.label, "${a.label} · OK switch · hold OK close", onClick = { launch(ctx, a.id, browser); onDone() }, onKey = holdToClose(a), id = "open:${a.id}")
+        }
+        if (!granted) item(key = "hint") { Pill(AMBER, "usage access off", "Run Build & Install Starshine once", onClick = {}, id = "open:hint") }
+        item(key = "closeall") {
+            Pill(RED, "✕ Close all background apps", "Close all background apps", onClick = {
+                val mb = SystemInfo.boost(ctx, apps.map { it.id }); recent = emptyList(); onToast("Closed background apps · freed $mb MB")
+            }, id = "open:closeall")
+        }
+    }
+}
+
+/* ---------------- frequency generator modal ---------------- */
+
+@Composable
+fun ToneEditor(first: FocusRequester, onPlay: (Tone) -> Unit, onStop: () -> Unit, onSaved: () -> Unit) {
+    val ctx = LocalContext.current
+    val sp = remember { ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE) }
+    var presets by remember { mutableStateOf(Tones.loadPresets(ctx)) }
+    var idx by remember { mutableIntStateOf(sp.getInt("toneIdx", 0).coerceIn(0, (presets.size - 1).coerceAtLeast(0))) }
+    var tone by remember { mutableStateOf(presets.firstOrNull { it.name == Sound.current } ?: presets.getOrElse(idx) { Tone() }) }
+    val playing = Sound.current == tone.name || (Sound.current.isNotEmpty() && Tones.playing)
+    var note by remember { mutableStateOf("") }
+    fun set(t: Tone) { tone = t; Sound.updateTone(t) }
+    fun pick(i: Int) { if (presets.isEmpty()) return; idx = (i % presets.size + presets.size) % presets.size; sp.edit().putInt("toneIdx", idx).apply(); tone = presets[idx]; if (playing) onPlay(tone) }
+    fun save(list: List<Tone>) { presets = list; Tones.savePresets(ctx, list); onSaved() }
+    fun hz(v: Float) = if (v >= 100f) String.format(Locale.US, "%.1f Hz", v) else String.format(Locale.US, "%.2f Hz", v)
+    fun beat(v: Float) = tone.copy(beat = v.coerceAtLeast(0f), beatEnd = if (tone.sweepMin <= 0f) v.coerceAtLeast(0f) else tone.beatEnd)
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        item { Box(Modifier.focusRequester(first)) { Adjust("Preset", "${idx + 1}/${presets.size} · ${tone.name}", { pick(idx - 1) }) { pick(idx + 1) } } }
+        item { Row_(if (playing) "■ Stop" else "▶ Play", playing, id = "tone:playstop", onFocus = {}) { if (playing) onStop() else onPlay(tone) } }
+        item { Adjust("Carrier · coarse ±10 Hz", hz(tone.carrier), { set(tone.copy(carrier = (tone.carrier - 10f).coerceAtLeast(1f))) }) { set(tone.copy(carrier = (tone.carrier + 10f).coerceAtMost(22000f))) } }
+        item { Adjust("Carrier · fine ±0.1 Hz", hz(tone.carrier), { set(tone.copy(carrier = (tone.carrier - 0.1f).coerceAtLeast(1f))) }) { set(tone.copy(carrier = (tone.carrier + 0.1f).coerceAtMost(22000f))) } }
+        item { Adjust("Beat (binaural) · ±1 Hz", hz(tone.beat), { set(beat(tone.beat - 1f)) }) { set(beat(tone.beat + 1f)) } }
+        item { Adjust("Beat · fine ±0.05 Hz", hz(tone.beat), { set(beat(tone.beat - 0.05f)) }) { set(beat(tone.beat + 0.05f)) } }
+        item { Adjust("Sweep beat to", hz(tone.beatEnd), { set(tone.copy(beatEnd = (tone.beatEnd - 0.5f).coerceAtLeast(0f))) }) { set(tone.copy(beatEnd = tone.beatEnd + 0.5f)) } }
+        item { Adjust("Sweep duration", if (tone.sweepMin <= 0f) "off" else "${tone.sweepMin.toInt()} min", { set(tone.copy(sweepMin = (tone.sweepMin - 1f).coerceAtLeast(0f))) }) { set(tone.copy(sweepMin = tone.sweepMin + 1f)) } }
+        item { Adjust("Waveform", Tone.WAVES[tone.wave.coerceIn(0, 3)], { set(tone.copy(wave = (tone.wave + 3) % 4)) }) { set(tone.copy(wave = (tone.wave + 1) % 4)) } }
+        item { Adjust("Isochronic pulse", if (tone.iso <= 0f) "off" else hz(tone.iso), { set(tone.copy(iso = (tone.iso - 0.5f).coerceAtLeast(0f))) }) { set(tone.copy(iso = tone.iso + 0.5f)) } }
+        item { Adjust("Pulse depth", pct(tone.isoDepth), { set(tone.copy(isoDepth = (tone.isoDepth - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(isoDepth = (tone.isoDepth + 0.05f).coerceAtMost(1f))) } }
+        item { Adjust("2nd harmonic", pct(tone.harmonic), { set(tone.copy(harmonic = (tone.harmonic - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(harmonic = (tone.harmonic + 0.05f).coerceAtMost(1f))) } }
+        item { Adjust("Pink-noise bed", pct(tone.noise), { set(tone.copy(noise = (tone.noise - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(noise = (tone.noise + 0.05f).coerceAtMost(1f))) } }
+        item { Adjust("Didgeridoo", if (tone.didge) "on" else "off", { set(tone.copy(didge = !tone.didge)) }) { set(tone.copy(didge = !tone.didge)) } }
+        if (tone.didge) {
+            item { Adjust("   Drone note", hz(tone.didgePitch), { set(tone.copy(didgePitch = (tone.didgePitch - 1f).coerceAtLeast(30f))) }) { set(tone.copy(didgePitch = (tone.didgePitch + 1f).coerceAtMost(160f))) } }
+            item { Adjust("   Didgeridoo level", pct(tone.didgeLevel), { set(tone.copy(didgeLevel = (tone.didgeLevel - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(didgeLevel = (tone.didgeLevel + 0.05f).coerceAtMost(1f))) } }
+            item { Adjust("   Mouth movement", pct(tone.didgeMouth), { set(tone.copy(didgeMouth = (tone.didgeMouth - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(didgeMouth = (tone.didgeMouth + 0.05f).coerceAtMost(1f))) } }
+            item { Adjust("   Mouth speed", hz(tone.didgeRate), { set(tone.copy(didgeRate = (tone.didgeRate - 0.05f).coerceAtLeast(0.05f))) }) { set(tone.copy(didgeRate = (tone.didgeRate + 0.05f).coerceAtMost(6f))) } }
+            item { Adjust("   Breath", pct(tone.didgeBreath), { set(tone.copy(didgeBreath = (tone.didgeBreath - 0.05f).coerceAtLeast(0f))) }) { set(tone.copy(didgeBreath = (tone.didgeBreath + 0.05f).coerceAtMost(1f))) } }
+            item { Adjust("   Hide the tone (didgeridoo only)", if (tone.toneOff) "yes" else "no", { set(tone.copy(toneOff = !tone.toneOff)) }) { set(tone.copy(toneOff = !tone.toneOff)) } }
+        }
+        item { Adjust("Balance L / R", if (abs(tone.balance) < 0.01f) "center" else (if (tone.balance < 0) "L " else "R ") + pct(abs(tone.balance)),
+            { set(tone.copy(balance = (tone.balance - 0.05f).coerceAtLeast(-1f))) }) { set(tone.copy(balance = (tone.balance + 0.05f).coerceAtMost(1f))) } }
+        item { Adjust("Volume", pct(tone.volume), { set(tone.copy(volume = (tone.volume - 0.02f).coerceAtLeast(0f))) }) { set(tone.copy(volume = (tone.volume + 0.02f).coerceAtMost(1f))) } }
+        item { Adjust("Fade in / smoothing", String.format(Locale.US, "%.1f s", tone.fadeSec), { set(tone.copy(fadeSec = (tone.fadeSec - 0.5f).coerceAtLeast(0f))) }) { set(tone.copy(fadeSec = tone.fadeSec + 0.5f)) } }
+        item { Row_("＋ Save as new preset", false, onFocus = {}) {
+            val n = "My ${hz(tone.carrier)}" + (if (tone.beat > 0f) " / ${hz(tone.beat)}" else "")
+            save(presets + tone.copy(name = n)); idx = presets.size - 1; sp.edit().putInt("toneIdx", idx).apply(); tone = tone.copy(name = n); note = "Saved \"$n\" (now in Moods)"
+        } }
+        item { Row_("⟳ Overwrite current preset", false, onFocus = {}) {
+            if (presets.isNotEmpty()) { val n = presets[idx].name; save(presets.toMutableList().apply { set(idx, tone.copy(name = n)) }); note = "Updated \"$n\"" }
+        } }
+        item { Row_("🗑 Delete current preset", false, onFocus = {}) {
+            if (presets.size > 1) { val n = presets[idx].name; save(presets.filterIndexed { i, _ -> i != idx }); pick(idx.coerceAtMost(presets.size - 1)); note = "Deleted \"$n\"" }
+        } }
+        item { Row_("Restore built-in presets", false, onFocus = {}) { save(presets + Tone.BUILT_IN.filter { b -> presets.none { it.name == b.name } }); note = "Built-in presets restored" } }
+        item { Text(note.ifEmpty { "Left ear = carrier − beat/2 · right = + beat/2. Binaural needs stereo. Keep the volume low." }, color = DIM, fontSize = 9.sp, modifier = Modifier.padding(top = 6.dp)) }
+    }
+}
+
+fun loadApps(pm: PackageManager): List<AppEntry> {
+    val seen = LinkedHashMap<String, AppEntry>()
+    for (cat in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
+        for (r in pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(cat), 0)) {
+            val p = r.activityInfo.packageName
+            if (p == SELF || p in HIDDEN || seen.containsKey(p)) continue
+            val icon = runCatching { r.loadIcon(pm).toBitmap(144, 144).asImageBitmap() }.getOrNull()
+            val banner = runCatching {
+                (r.activityInfo.loadBanner(pm) ?: pm.getApplicationBanner(r.activityInfo.applicationInfo))?.toBitmap(320, 180)?.asImageBitmap()
+            }.getOrNull()
+            seen[p] = AppEntry(p, r.loadLabel(pm).toString(), icon, banner)
+        }
+    }
+    return seen.values.sortedBy { it.label.lowercase() }
+}
+
+fun resolve(id: String, apps: List<AppEntry>): AppEntry? = when {
+    id == SETTINGS_ID -> AppEntry(SETTINGS_ID, "Android Settings")
+    id == BLISS_ID -> AppEntry(BLISS_ID, "Bliss OS", icon = apps.find { it.id == EASYCONTROL }?.icon)
+    id.startsWith("web:") -> webEntry(id)
+    else -> apps.find { it.id == id }
+}
+
+fun launch(ctx: Context, id: String, browser: String = "") {
+    val pm = ctx.packageManager
+    val i = when {
+        id == SETTINGS_ID -> Intent(Settings.ACTION_SETTINGS)
+        id.startsWith("web:") -> {
+            val uri = Uri.parse(id.substringAfter("|"))
+            if (browser == "@builtin" || (BuildConfig.PRIVATE_DOMAIN.isNotEmpty() && (uri.host ?: "").endsWith(BuildConfig.PRIVATE_DOMAIN))) Intent(ctx, WebActivity::class.java).setData(uri)
+            else Intent(Intent.ACTION_VIEW, uri).apply { if (browser.isNotEmpty() && pm.getLaunchIntentForPackage(browser) != null) setPackage(browser) }
+        }
+        else -> pm.getLeanbackLaunchIntentForPackage(id) ?: pm.getLaunchIntentForPackage(id) ?: return
+    }
+    runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+private fun open(ctx: Context, i: Intent) = runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+
+fun mediaFiles(ctx: Context): List<File> =
+    ctx.getExternalFilesDir("backgrounds")?.listFiles()
+        ?.filter { it.extension.lowercase() in setOf("mp4", "webm", "mkv", "gif", "webp", "png", "jpg", "jpeg") }
+        ?.sortedBy { it.name } ?: emptyList()
+
+
+// OK on every remote: D-pad centre, Enter, numpad Enter, and the gamepad-style SELECT / A that many air mice (incl. the M5) send
+private fun KeyEvent.isOk() = key == Key.DirectionCenter || key == Key.Enter || key == Key.NumPadEnter || key == Key.ButtonSelect || key == Key.ButtonA
+
+@Composable
+fun Background(bg: String, style: BgStyle, fps30: Boolean, reactive: Boolean = false) {
+    val ctx = LocalContext.current
+    if (bg == BG2_ID) { Bg2Background(fps30, Modifier.fillMaxSize()); return }
+    if (bg.startsWith("file:")) {
+        val nm = bg.removePrefix("file:")
+        val f = if (nm.startsWith("/")) File(nm) else File(ctx.getExternalFilesDir("backgrounds"), nm)
+        if (f.exists()) {
+            if (f.extension.lowercase() in setOf("mp4", "webm", "mkv")) VideoBackground(Uri.fromFile(f)) else AnimatedImage(f)
+            return
+        }
+    }
+    if (bg in SHADERS) { ShaderBackground(bg, style, Modifier.fillMaxSize(), reactive); return }
+    ThreadedBackground(if (bg in PROCEDURAL) bg else PROCEDURAL[0], style, fps30, reactive, Modifier.fillMaxSize())
+}
+
+@Composable
+fun AnimatedImage(f: File) {
+    val ctx = LocalContext.current
+    val loader = remember {
+        ImageLoader.Builder(ctx).components {
+            if (Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
+        }.build()
+    }
+    AsyncImage(model = f, contentDescription = null, imageLoader = loader, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun VideoBackground(uri: Uri) {
+    val ctx = LocalContext.current
+    val player = remember(uri) {
+        ExoPlayer.Builder(ctx).build().apply {
+            setMediaItem(MediaItem.fromUri(uri)); repeatMode = Player.REPEAT_MODE_ALL; volume = 0f
+            prepare(); playWhenReady = true
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AndroidView(factory = {
+        PlayerView(it).apply {
+            useController = false; resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            isFocusable = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            this.player = player
+        }
+    }, modifier = Modifier.fillMaxSize())
+}
+
+@Composable
+private fun Pill(dot: Color, text: String, focusedText: String, onClick: () -> Unit, onKey: ((KeyEvent) -> Boolean)? = null, id: String = text) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier.remembered(id).onFocusChanged { focused = it.isFocused }.focusOnHover().onPreviewKeyEvent { onKey?.invoke(it) ?: false }.clickable { onClick() }
+            .background(if (focused) VIOLET.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .border(1.dp, if (focused) VIOLET else Color.Transparent, RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(7.dp).drawBehind { drawCircle(dot.copy(alpha = 0.35f), radius = size.minDimension * 1.2f) }.background(dot, CircleShape))
+        Text(if (focused) focusedText else text, color = if (focused) FG else DIM, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+private val TILE_SHAPE = RoundedCornerShape(12.dp)
+
+@Composable
+fun Tile(
+    a: AppEntry?, modifier: Modifier = Modifier, width: Int = 128, label: String? = null,
+    badge: Boolean = false, moving: Boolean = false, onKey: ((KeyEvent) -> Boolean)? = null, onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.12f else 1f, label = "scale")
+    val h = width * 9 / 16
+    val small = width < 90
+    Column(
+        modifier.width(width.dp).remembered("tile:" + (a?.id ?: "+add")).onFocusChanged { focused = it.isFocused }.focusOnHover()
+            .onPreviewKeyEvent { e -> onKey?.invoke(e) ?: false }
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier.size(width.dp, h.dp).scale(scale)
+                .drawBehind {
+                    if (focused) drawRoundRect(
+                        Brush.radialGradient(listOf(CYAN.copy(alpha = 0.40f), VIOLET.copy(alpha = 0.12f), Color.Transparent), radius = size.width * 0.85f),
+                        topLeft = Offset(-size.width * 0.12f, -size.height * 0.2f), size = Size(size.width * 1.24f, size.height * 1.4f),
+                        cornerRadius = CornerRadius(40f))
+                }
+                .clip(if (small) RoundedCornerShape(8.dp) else TILE_SHAPE)
+                .background(Color(0xCC0B1520))
+                .border(if (focused || moving) 2.dp else 1.dp, if (moving) VIOLET else if (focused) CYAN else CYAN.copy(alpha = 0.16f),
+                    if (small) RoundedCornerShape(8.dp) else TILE_SHAPE),
+            contentAlignment = Alignment.Center
+        ) {
+            when {
+                a == null -> Text("+", color = FG, fontSize = (h * 0.6f).sp, fontWeight = FontWeight.Light)
+                a.banner != null -> Image(a.banner, a.label, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                small -> if (a.icon != null) Image(a.icon, a.label, Modifier.size((h * 0.7f).dp))
+                    else if (a.isWeb) Text(a.label, color = FG, fontSize = 9.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
+                    else Text("⚙", fontSize = (h * 0.45f).sp, color = FG)
+                else -> Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (a.icon != null) Image(a.icon, a.label, Modifier.size((h * 0.55f).dp))
+                    else Text(if (a.isWeb) "🌐" else "⚙", fontSize = 22.sp, color = FG)
+                    Text(a.label, color = FG, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+            if (badge) Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(7.dp).background(CYAN, CircleShape))
+            if (moving) Text("‹ ›", color = Color.White, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center)
+                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp))
+        }
+        Text(label ?: if (focused) (a?.label ?: "Add app") else " ", color = FG, fontSize = 10.sp, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 7.dp))
+    }
+}
+
+@Composable
+fun NowPlayingCard() {
+    val ctx = LocalContext.current
+    val p by produceState<Playing?>(null) { while (true) { value = runCatching { NowPlaying.current(ctx) }.getOrNull(); delay(2_000) } }
+    val np = p ?: return
+    Row(Modifier.padding(bottom = 12.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+        .border(1.dp, CYAN.copy(alpha = 0.2f), RoundedCornerShape(16.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (np.art != null) Image(np.art.asImageBitmap(), null, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+        Column(Modifier.padding(horizontal = 10.dp).width(220.dp)) {
+            Text(np.title, color = FG, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(np.artist.ifEmpty { np.pkg }, color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        SmallButton(if (np.playing) "❚❚" else "▶") { NowPlaying.toggle(np) }
+        SmallButton("⏭") { NowPlaying.next(np) }
+    }
+}
+
+@Composable
+fun ContinueWatching(base: String, token: String, user: String, refresh: Int, onOpen: () -> Unit) {
+    val items by produceState(emptyList<Jellyfin.Item>(), token, refresh) {
+        while (true) { value = withContext(Dispatchers.IO) { Jellyfin.resume(base, token, user) }; delay(300_000) }
+    }
+    if (items.isEmpty()) return
+    Column(Modifier.padding(bottom = 10.dp)) {
+        Text("CONTINUE WATCHING", color = DIM, fontSize = 9.sp, letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(items, key = { it.id }) { it2 ->
+                var focused by remember { mutableStateOf(false) }
+                Column(Modifier.width(132.dp).remembered("cw:" + it2.id).onFocusChanged { focused = it.isFocused }.focusOnHover().clickable { onOpen() }) {
+                    Box(Modifier.size(132.dp, 74.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC0B1520))
+                        .border(if (focused) 2.dp else 1.dp, if (focused) CYAN else CYAN.copy(alpha = 0.15f), RoundedCornerShape(10.dp))) {
+                        AsyncImage(it2.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(it2.progress.coerceIn(0f, 1f)).height(3.dp).background(CYAN))
+                    }
+                    Text(it2.title, color = if (focused) FG else DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    if (focused) Text(it2.subtitle, color = DIM, fontSize = 9.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmallButton(text: String, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Text(text, color = FG, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 3.dp)
+        .remembered("np:$text").onFocusChanged { focused = it.isFocused }.focusOnHover().clickable { onClick() }
+        .background(if (focused) CYAN.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+        .border(1.dp, if (focused) CYAN else DIM.copy(alpha = 0.3f), CircleShape).padding(horizontal = 10.dp, vertical = 6.dp))
+}
+
+@Composable
+fun Dock(
+    items: List<AppEntry>, moving: String?, tileWidth: Int,
+    onLaunch: (AppEntry) -> Unit, onStartMove: (String) -> Unit, onMove: (String, Int) -> Unit,
+    onRemove: (String) -> Unit, onEndMove: () -> Unit, onAdd: () -> Unit
+) {
+    val requesters = remember { HashMap<String, FocusRequester>() }
+    var longFired by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (moving != null) Text("← → move  ·  ↓ remove  ·  OK done", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp))
+        LazyRow(
+            Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(20.dp)),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy((tileWidth / 8).coerceAtLeast(6).dp)
+        ) {
+            items(items, key = { it.id }) { a ->
+                val fr = requesters.getOrPut(a.id) { FocusRequester() }
+                Tile(a, Modifier.focusRequester(fr).focusProperties { FocusMem.map["tab:Home"]?.let { up = it } }, width = tileWidth, moving = moving == a.id, onKey = { e ->
+                    if (moving == a.id) {
+                        if (e.type == KeyEventType.KeyDown) when {
+                            e.key == Key.DirectionLeft -> onMove(a.id, -1)
+                            e.key == Key.DirectionRight -> onMove(a.id, +1)
+                            e.key == Key.DirectionDown -> onRemove(a.id)
+                            e.isOk() && e.nativeKeyEvent.repeatCount == 0 && !longFired -> onEndMove()
+                        }
+                        if (e.type == KeyEventType.KeyUp && e.isOk()) longFired = false
+                        true
+                    } else when {
+                        !e.isOk() -> false
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; onStartMove(a.id); true }
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
+                        else -> false
+                    }
+                }) { if (moving == null) onLaunch(a) }
+            }
+            item(key = "+add") { Tile(null, width = tileWidth) { if (moving == null) onAdd() } }
+        }
+    }
+    LaunchedEffect(items.map { it.id }, moving) { moving?.let { runCatching { requesters[it]?.requestFocus() } } }
+    // first launch only: put focus on the first dock tile (retry until the lazy row has laid it out)
+    val latestItems = rememberUpdatedState(items)
+    LaunchedEffect(items.isEmpty(), FocusMem.pendingDock) {   // apps load in the background, so wait for them
+        if (!FocusMem.pendingDock || items.isEmpty()) return@LaunchedEffect
+        val wanted = FocusMem.last?.takeIf { it.startsWith("tile:") }?.removePrefix("tile:")?.takeIf { w -> latestItems.value.any { it.id == w } }
+        repeat(20) {
+            delay(100)
+            val id = wanted ?: latestItems.value.firstOrNull()?.id
+            id?.let { runCatching { requesters[it]?.requestFocus() } }
+            if (FocusMem.last?.startsWith("tile:") == true) { FocusMem.pendingDock = false; return@LaunchedEffect }
+        }
+        FocusMem.pendingDock = false
+    }
+}
+
+@Composable
+fun AddPicker(candidates: List<AppEntry>, onPick: (AppEntry) -> Unit) {
+    val first = remember { FocusRequester() }
+    Overlay("ADD TO DOCK", "OK = add · Back = close") {
+        LazyVerticalGrid(GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(candidates, key = { it.id }) { a -> Tile(a, if (a == candidates.firstOrNull()) Modifier.focusRequester(first) else Modifier, label = a.label) { onPick(a) } }
+        }
+    }
+    LaunchedEffect(Unit) { delay(60); runCatching { first.requestFocus() } }
+}
+
+@Composable
+fun QuickConnectDialog(base: String, onDone: (String, String) -> Unit, onClose: () -> Unit) {
+    var code by remember { mutableStateOf("…") }
+    var status by remember { mutableStateOf("Contacting Jellyfin…") }
+    LaunchedEffect(Unit) {
+        val init = withContext(Dispatchers.IO) { Jellyfin.initiate(base) }
+        if (init == null) { status = "Quick Connect is off on the server. Enable it in Jellyfin Dashboard → General → Quick Connect."; return@LaunchedEffect }
+        code = init.first; status = "On your phone/PC: Jellyfin → profile → Quick Connect → enter this code"
+        repeat(120) {
+            delay(3000)
+            if (withContext(Dispatchers.IO) { Jellyfin.approved(base, init.second) }) {
+                val r = withContext(Dispatchers.IO) { Jellyfin.login(base, init.second) }
+                if (r != null) { onDone(r.first, r.second); return@LaunchedEffect } else { status = "Approved, but sign-in failed. Try again."; return@LaunchedEffect }
+            }
+        }
+        status = "Timed out. Press Back and try again."
+    }
+    Overlay("JELLYFIN QUICK CONNECT", "Back = cancel") {
+        Text(code, color = FG, fontSize = 56.sp, fontWeight = FontWeight.Light, letterSpacing = 8.sp)
+        Text(status, color = DIM, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
+        Box(Modifier.size(1.dp).focusable())
+    }
+}
+
+@Composable
+fun Chip(text: String, id: String = text, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Text(text, color = if (focused) FG else DIM, fontSize = 12.sp, maxLines = 1, modifier = Modifier
+        .remembered("chip:$id").onFocusChanged { focused = it.isFocused }.focusOnHover().clickable { onClick() }
+        .background(if (focused) CYAN.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+        .border(1.dp, if (focused) CYAN else Color.Transparent, RoundedCornerShape(12.dp))
+        .padding(horizontal = 14.dp, vertical = 10.dp))
+}
+
+@Composable
+fun AppsGrid(apps: List<AppEntry>, dock: List<String>, onLaunch: (AppEntry) -> Unit, onToggle: (AppEntry) -> Unit) {
+    var longFired by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 40.dp)) {
+        Text("OK = open  ·  hold OK = add to / remove from dock  (● = in dock)", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(bottom = 10.dp))
+        LazyVerticalGrid(GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(apps, key = { it.id }) { a ->
+                Tile(a, label = a.label, badge = a.id in dock, onKey = { e ->
+                    when {
+                        !e.isOk() -> false
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; onToggle(a); true }
+                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
+                        e.type == KeyEventType.KeyUp && longFired -> { longFired = false; true }
+                        else -> false
+                    }
+                }) { onLaunch(a) }
+            }
+        }
+    }
+}
+
+private fun f1(v: Float) = String.format(Locale.US, "%.1f", v)
+
+private fun pct(v: Float) = "${(v * 100).toInt()}%"
+
+@Composable
+fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) =
+    Column(modifier.background(Color.Black.copy(alpha = Theme.panelAlpha), RoundedCornerShape(18.dp))
+        .border(1.dp, CYAN.copy(alpha = 0.15f), RoundedCornerShape(18.dp)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
+
+@Composable
+fun Adjust(label: String, value: String, dec: () -> Unit, compact: Boolean = false, inc: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val editing = M5.editing == label
+    Row(
+        Modifier.fillMaxWidth().remembered("adj:$label").focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel }.onFocusChanged {
+                focused = it.isFocused
+                if (!it.isFocused && M5.editing == label) M5.editing = null
+                if (it.isFocused && M5.carryEdit) { M5.carryEdit = false; M5.editing = label }
+            }.focusOnHover()
+            .onPreviewKeyEvent { e ->
+                val down = e.type == KeyEventType.KeyDown
+                when {
+                    !M5.editLock -> if (!down) false else when (e.key) { Key.DirectionLeft -> { dec(); true }; Key.DirectionRight -> { inc(); true }; else -> false }
+                    // ↑ ↓ leave the value field and go straight to the neighbouring one, which is ready to edit
+                    editing && (e.key == Key.DirectionUp || e.key == Key.DirectionDown) -> { if (down) { M5.editing = null; M5.carryEdit = true }; false }
+                    editing -> {   // ← → change only this row until Back / OK
+                        if (down) when {
+                            e.key == Key.DirectionLeft -> dec()
+                            e.key == Key.DirectionRight -> inc()
+                            e.key == Key.Back || (e.isOk() && e.nativeKeyEvent.repeatCount == 0) -> M5.editing = null
+                        }
+                        true
+                    }
+                    down && e.isOk() && e.nativeKeyEvent.repeatCount == 0 -> { M5.carryEdit = false; M5.editing = label; true }
+                    e.isOk() -> true
+                    else -> false
+                }
+            }
+            .focusable()
+            .background(if (editing) AMBER.copy(alpha = 0.14f) else if (focused) CYAN.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(if (editing) 2.dp else 1.dp, if (editing) AMBER else if (focused) CYAN else Color.Transparent, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(label, color = if (focused || editing) FG else DIM, fontSize = 12.sp, maxLines = if (compact) 1 else Int.MAX_VALUE, modifier = Modifier.weight(1f))
+        Text(if (editing) "◂ $value ▸" else if (focused && M5.editLock && !compact) "$value · OK to edit" else "‹ $value ›", color = if (editing) AMBER else FG, fontSize = 12.sp)
+    }
+}
+
+@Composable
+fun Row_(label: String, selected: Boolean, id: String = label, side: String = "", small: Boolean = false, category: Boolean = false, onFocus: () -> Unit, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Text(label, color = if (focused || selected || category) FG else DIM, fontSize = if (category) 13.sp else if (small) 10.sp else 12.sp,
+        fontWeight = if (category) FontWeight.SemiBold else FontWeight.Normal,
+        modifier = Modifier.fillMaxWidth()
+            .remembered("row:$id")
+            .focusProperties { if (!side.contains('L')) left = FocusRequester.Cancel; if (!side.contains('R')) right = FocusRequester.Cancel }
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) { M5.carryEdit = false; onFocus() } }.focusOnHover()
+            .clickable { onClick() }
+            .background(if (focused) CYAN.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(10.dp))
+            .border(1.dp, if (focused) CYAN else if (selected) CYAN.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(10.dp))
+            .padding(horizontal = if (small) 14.dp else 12.dp, vertical = if (small) 3.dp else 7.dp))
+}
+
+/** Mouse / M5 air-mouse support: hovering an item focuses it (same glow as D-pad focus). */
+fun Modifier.focusOnHover(): Modifier = composed {
+    val fr = remember { FocusRequester() }
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    var hovered by remember { mutableStateOf(false) }
+    DisposableEffect(fr) { onDispose { if (M5.hoverTarget === fr) M5.hoverTarget = null } }
+    this.onGloballyPositioned { origin = it.positionInWindow() }
+        .drawWithContent {   // M5 mouse-over state: violet outline under the cursor
+            drawContent()
+            if (hovered) drawRoundRect(VIOLET.copy(alpha = 0.85f), style = Stroke(2.dp.toPx()), cornerRadius = CornerRadius(12.dp.toPx()))
+        }
+        .focusRequester(fr).pointerInput(Unit) {
+        coroutineScope {
+            var job: Job? = null
+            var inside = false
+            var pos = Offset.Zero
+            awaitPointerEventScope {
+                while (true) {
+                    val e = awaitPointerEvent()
+                    val p = e.changes.firstOrNull()?.position ?: continue
+                    pos = origin + p
+                    when (e.type) {
+                        PointerEventType.Enter -> {
+                            inside = true; hovered = true; job?.cancel()
+                            M5.hoverTarget = fr; M5.hoverAt = SystemClock.uptimeMillis()
+                            job = launch {
+                                delay(M5.dwellMs.toLong())
+                                val moved = (pos - M5.lastHoverPos).getDistance()
+                                if (inside && M5.hoverSelect && M5.editing == null && moved > M5.deadzone) {
+                                    runCatching { fr.requestFocus() }; M5.lastHoverPos = pos
+                                }
+                            }
+                        }
+                        PointerEventType.Exit -> { inside = false; hovered = false; job?.cancel(); if (M5.hoverTarget === fr) M5.hoverTarget = null }
+                        else -> {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Preset at (saved index + delta), saving the new index. */
+fun toneAt(ctx: Context, delta: Int): Tone {
+    val sp = ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE)
+    val list = Tones.loadPresets(ctx); if (list.isEmpty()) return Tone()
+    val i = ((sp.getInt("toneIdx", 0) + delta) % list.size + list.size) % list.size
+    sp.edit().putInt("toneIdx", i).apply(); return list[i]
+}
+
+@Composable
+fun M5Panel(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var result by remember { mutableStateOf("") }
+    var running by remember { mutableStateOf(false) }
+    val devices = remember {
+        InputDevice.getDeviceIds().toList().mapNotNull { InputDevice.getDevice(it) }.filter { !it.isVirtual }.map { d ->
+            val kinds = buildList {
+                if (d.supportsSource(InputDevice.SOURCE_MOUSE)) add("mouse")
+                if (d.supportsSource(InputDevice.SOURCE_KEYBOARD)) add("keys")
+                if (d.supportsSource(InputDevice.SOURCE_DPAD)) add("d-pad")
+            }
+            d.name + "  (" + kinds.joinToString() + ")"
+        }
+    }
+    val first = remember { FocusRequester() }
+    Overlay("M5 AIR MOUSE · TEST & CALIBRATE", "Move and press buttons to see them live · Back = close") {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Panel(Modifier.width(330.dp)) {
+                Text("LIVE", color = CYAN, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                Text("Pointer  x ${M5.pointer.x.toInt()}  y ${M5.pointer.y.toInt()}", color = FG, fontSize = 12.sp)
+                Text("Speed  ${M5.speed.toInt()} px/s", color = FG, fontSize = 12.sp)
+                Text("Hover delay ${M5.dwellMs} ms · jitter guard ${M5.deadzone.toInt()} px", color = DIM, fontSize = 11.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("LAST BUTTONS", color = CYAN, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                M5.keyLog.forEach { Text(it, color = DIM, fontSize = 10.sp, maxLines = 1) }
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.focusRequester(first)) {
+                    Chip(if (running) "Hold the M5 still…" else "🎯 Auto-calibrate (hold still 3 s)") {
+                        if (!running) scope.launch {
+                            running = true; result = ""
+                            val pts = ArrayList<Offset>()
+                            repeat(60) { pts.add(M5.pointer); delay(50) }
+                            val cx = pts.map { it.x }.average().toFloat(); val cy = pts.map { it.y }.average().toFloat()
+                            val jitter = pts.maxOf { (it - Offset(cx, cy)).getDistance() }
+                            M5.deadzone = (jitter * 1.5f + 6f).coerceIn(6f, 80f)
+                            M5.dwellMs = if (jitter > 20f) 380 else if (jitter > 8f) 300 else 240
+                            M5.save(ctx); running = false
+                            result = "Hand tremor ≈ ${jitter.toInt()} px → jitter guard ${M5.deadzone.toInt()} px, hover delay ${M5.dwellMs} ms (saved)"
+                        }
+                    }
+                }
+                if (result.isNotEmpty()) Text(result, color = AMBER, fontSize = 11.sp)
+            }
+            Panel(Modifier.width(380.dp)) {
+                Text("BUTTON MAP", color = CYAN, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                listOf(
+                    "OK / left click" to (if (M5.clickAsOk) "OK on the selected item (hold = hold-OK)" else "click where the cursor is"),
+                    "Right click" to M5.rightClick,
+                    "Arrows (M5 keyboard)" to "move selection · change a locked setting",
+                    "OK on a setting" to (if (M5.editLock) "lock it for editing · Back/OK = done" else "← → change directly"),
+                    "Back" to "back · leave edit · close panels",
+                    "Home / long-press Home" to "Home / Starshine quick panel",
+                    "Menu" to M5.menuKey,
+                    "Mic / Search" to "Starshine voice command",
+                    "Volume" to "system volume",
+                    "Moving the M5" to (if (M5.hoverSelect) "selects after resting ${M5.dwellMs} ms" else "pointer only, no selection")
+                ).forEach { (k, v) ->
+                    Row { Text(k, color = FG, fontSize = 11.sp, modifier = Modifier.width(150.dp)); Text(v, color = DIM, fontSize = 11.sp) }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("DETECTED INPUT DEVICES", color = CYAN, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                devices.forEach { Text(it, color = if (it.startsWith("M5")) FG else DIM, fontSize = 10.sp, maxLines = 1) }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { delay(60); runCatching { first.requestFocus() } }
+}
+
+@Composable
+fun HomeSwitch() {
+    val ctx = LocalContext.current
+    val sp = remember { ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE) }
+    var on by remember { mutableStateOf(sp.getBoolean("homeOverride", true)) }
+    fun flip() { on = !on; sp.edit().putBoolean("homeOverride", on).apply() }
+    Adjust("Home button opens Starshine", if (on) "on" else "off (Google TV)", { flip() }) { flip() }
+}
+
+@Composable
+fun VisualSettings() {
+    val ctx = LocalContext.current
+    val p = remember { Prefs(ctx) }
+    var mode by remember { mutableStateOf(p.visual) }
+    var inten by remember { mutableStateOf(p.visualI) }
+    Column {
+        Adjust("Visualizer (on top of the background)", mode,
+            { mode = VISUAL_MODES[(VISUAL_MODES.indexOf(mode) - 1 + VISUAL_MODES.size) % VISUAL_MODES.size]; p.visual = mode }) {
+            mode = VISUAL_MODES[(VISUAL_MODES.indexOf(mode) + 1) % VISUAL_MODES.size]; p.visual = mode }
+        Adjust("Visualizer intensity", pct(inten), { inten = (inten - 0.1f).coerceAtLeast(0f); p.visualI = inten }) { inten += 0.1f; p.visualI = inten }
+    }
+}
+
+/** Per-background switch: pulse this background with the playing mood / frequency. */
+@Composable
+fun ReactSwitch(bg: String) {
+    val ctx = LocalContext.current
+    val p = remember { Prefs(ctx) }
+    var on by remember(bg) { mutableStateOf(p.reactive(bg)) }
+    fun flip() { on = !on; p.setReactive(bg, on) }
+    Adjust("Animate with sound / moods", if (on) "on" else "off", { flip() }) { flip() }
+}
+
+/**
+ * The look modulated by the current sound: beat of a frequency (capped at 2 Hz, photosensitivity-safe) or the swell of an ambient sound.
+ * Plain function, called by the render threads. Returns the plain style when nothing is playing.
+ */
+fun soundStyleAt(style: BgStyle, t: Float): BgStyle {
+    if (Sound.current.isEmpty() || Sound.pausedByOther) return style
+    val tone = Sound.toneNow
+    val rate = if (tone != null) (if (tone.beat > 0f) tone.beat else 1f).coerceIn(0.1f, 2f) else 0.12f
+    val pulse = 0.5f + 0.5f * kotlin.math.sin(2f * Math.PI.toFloat() * rate * t)
+    val amt = if (tone != null) tone.volume.coerceIn(0.1f, 1f) * 2f else Ambient.volume.coerceIn(0.1f, 1f) * 1.6f
+    return style.copy(
+        glow = style.glow * (1f + 0.6f * amt * pulse),
+        speed = style.speed * (1f + 0.35f * amt * pulse),
+        size = style.size * (1f + 0.08f * amt * pulse),
+        brightness = style.brightness * (1f + 0.15f * amt * pulse)
+    )
+}
+
+/** Starfield nebula backdrop: built-in nebulae + your own images, brightness. Changes show live. */
+@Composable
+fun NebulaRows() {
+    val ctx = LocalContext.current
+    val p = remember { Prefs(ctx) }
+    val scope = rememberCoroutineScope()
+    val options = remember { Nebula.PRESETS + Nebula.photos(ctx) + mediaFiles(ctx).filter { it.extension.lowercase() in setOf("png", "jpg", "jpeg", "webp") }.map { "file:" + it.name } }
+    var sel by remember { mutableStateOf(p.nebula) }
+    var a by remember { mutableStateOf(p.nebulaA) }
+    fun pick(d: Int) {
+        sel = options[(options.indexOf(sel).coerceAtLeast(0) + d + options.size) % options.size]; p.nebula = sel
+        scope.launch { Nebula.image = withContext(Dispatchers.Default) { Nebula.load(ctx, sel) } }
+    }
+    Column {
+        Adjust("Nebula backdrop", sel.removePrefix("file:").removePrefix("neb:").substringBeforeLast('.').replace('_', ' '), { pick(-1) }) { pick(+1) }
+        Adjust("Nebula brightness", pct(a), { a = (a - 0.05f).coerceAtLeast(0f); p.nebulaA = a; Nebula.alpha = a }) { a += 0.05f; p.nebulaA = a; Nebula.alpha = a }
+    }
+}
+
+/* ---------------- gestures ---------------- */
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun GestureList(first: FocusRequester, gestures: Map<String, String>, describe: (String) -> String,
+                onEdit: (String) -> Unit, onRecord: () -> Unit, onReset: () -> Unit,
+                onRemove: (String) -> Unit = {}, onSave: () -> Unit = {}) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.focusRequester(first)) { Chip("＋ Add gesture", id = "g:add") { onRecord() } }
+                Chip("💾 Save", id = "g:save") { onSave() }
+                Chip("↺ Reset all", id = "g:resetall") { onReset() }
+            }
+        }
+        items(gestures.entries.toList(), key = { it.key }) { (p, a) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Row_(Gestures.arrows(p).padEnd(8) + "   " + describe(a), false, id = "g:$p", side = "R", onFocus = {}) { onEdit(p) } }
+                Chip("−", id = "g:rm:$p") { onRemove(p) }
+            }
+        }
+        item { Text("How to draw: hold the M5's right button and move it in a shape, then let go (a short right click is still Back). " +
+            "No right button? Quick panel → ✍ Draw gesture, move, then click. Shapes are read as strokes in 8 directions: → ← ↑ ↓ ↗ ↘ ↙ ↖ and combinations such as ↓→ or ↗↘.",
+            color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+    }
+}
+
+@Composable
+fun GestureEditor(first: FocusRequester, current: String, choices: List<String>, describe: (String) -> String,
+                  onSet: (String) -> Unit, onDelete: () -> Unit) {
+    var code by remember { mutableStateOf(current) }
+    fun step(d: Int) { val i = choices.indexOf(code).coerceAtLeast(0); code = choices[(i + d + choices.size) % choices.size]; onSet(code) }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        item { Box(Modifier.focusRequester(first)) { Adjust("Action", describe(code), { step(-1) }) { step(+1) } } }
+        item { Text("Choose: Home, Quick panel, Open apps, Voice, Screensaver, next/previous background, stop sound, any mood or frequency, any background, any app. Hold ← → to scroll fast.",
+            color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+        item { Row_("🗑 Delete this gesture", false, id = "g:delete", onFocus = {}) { onDelete() } }
+    }
+}
+
+/** Voice setup: shows why recognition fails, lets you pick the recognizer, and tests it live. */
+@Composable
+fun VoiceSetup() {
+    val ctx = LocalContext.current
+    val services = remember { Voice.services(ctx) }
+    var chosen by remember { mutableStateOf(Voice.chosen(ctx)) }
+    var result by remember { mutableStateOf("") }
+    var running by remember { mutableStateOf(false) }
+    var granted by remember { mutableStateOf(Voice.hasMic(ctx)) }
+    val test = remember { Voice(ctx, onPartial = { result = "Hearing: $it" }, onResult = { t, err -> running = false; Sound.release(); result = if (t != null) "Heard: \"$t\"" else "Failed: $err" }) }
+    DisposableEffect(Unit) { onDispose { test.stop() } }
+    LaunchedEffect(Unit) { while (true) { granted = Voice.hasMic(ctx); delay(1000) } }
+    val options = listOf("") + services
+    fun pick(d: Int) { chosen = options[(options.indexOf(chosen).coerceAtLeast(0) + d + options.size) % options.size]; Voice.setChosen(ctx, chosen) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row_(if (result.isEmpty()) (if (running) "Listening… say \"open Jellyfin\"" else "🎤 Test: OK, then say \"open Jellyfin\"") else "🎤 $result  (OK = test again)", false, id = "voice:test", onFocus = {}) {
+            if (!granted) (ctx as? Activity)?.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1)
+            else { result = ""; running = true; Sound.hold(); test.listen() }
+        }
+        Adjust("Recognizer", if (chosen.isEmpty()) "Automatic" else Voice.shortName(chosen), { pick(-1) }) { pick(+1) }
+        Text("Microphone permission: " + if (granted) "granted" else "not granted (OK on Test to allow)", color = if (granted) GREEN else RED, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp))
+        Text("Audio inputs: " + Voice.inputs(ctx).ifEmpty { "none reported (use the remote's mic button)" }, color = DIM, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp))
+        Text("Installed recognizers: " + services.joinToString { Voice.shortName(it) }.ifEmpty { "none" }, color = DIM, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp))
+        Text("Automatic tries the Google TV recognizer first, then the others. The one that works is remembered.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp))
+    }
+}
+
+/** Starshine cursor: a small glowing cyan dot with a white core (system arrow in other apps). */
+fun glowDotIcon(ctx: Context): android.view.PointerIcon {
+    val d = ctx.resources.displayMetrics.density
+    val size = (28 * d).toInt().coerceAtLeast(24)
+    val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp); val r = size / 2f
+    val glow = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        shader = android.graphics.RadialGradient(r, r, r, intArrayOf(0xCC5EE7FF.toInt(), 0x555EE7FF, 0x00B18CFF), floatArrayOf(0f, 0.45f, 1f), android.graphics.Shader.TileMode.CLAMP)
+    }
+    c.drawCircle(r, r, r, glow)
+    c.drawCircle(r, r, r * 0.22f, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE })
+    return android.view.PointerIcon.create(bmp, r, r)
+}
+
+@Composable
+fun CursorSwitch() {
+    val ctx = LocalContext.current
+    val sp = remember { ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE) }
+    var on by remember { mutableStateOf(sp.getBoolean("glowCursor", true)) }
+    fun flip() { on = !on; sp.edit().putBoolean("glowCursor", on).apply() }
+    Adjust("Cursor style in Starshine", if (on) "glowing dot" else "system arrow", { flip() }) { flip() }
+}

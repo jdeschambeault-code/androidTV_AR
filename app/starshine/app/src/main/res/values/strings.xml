@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyservice_desc">Starshine: long-press Home in any app to open the Starshine quick panel. Short presses are not affected.</string>
+</resources>

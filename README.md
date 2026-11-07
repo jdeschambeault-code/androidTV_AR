@@ -37,7 +37,7 @@ Starshine runs on Android TV boxes and comes with a [Pinokio](https://pinokio.co
 - Built-in web viewer
 
 **Experimental**
-- Drone tab: live video from KY UFO Wi-Fi drones, view only. Still in development and not yet working reliably.
+- Drone tab: live video, recording, immersive and VR dual view, from KY UFO Wi-Fi drones. View only, with no flight control.
 
 See **[HELP.md](HELP.md)** for how everything works. The app shows the same file.
 
@@ -45,10 +45,18 @@ See **[HELP.md](HELP.md)** for how everything works. The app shows the same file
 
 This is an early release, developed and tested on one Rokid Station. Known to be unfinished:
 
-- **Drone video** doesn't work yet
+- **Drone video** works on one drone so far (KY UFO, 640×352), and other drones are untested
 - **AOW M5 air mouse:** the OK button fix is still being confirmed
 - **Video export, spoken voice commands and sound reaction to other apps' audio** haven't been fully tested
 - **Visual Meditation** journeys, a full video player and web video takeover are planned, not built
+
+## Hardware I use
+
+These are the devices it's developed on. Other glasses, boxes and remotes may work too.
+
+- **Rokid Max** AR glasses and **Rokid Station** pod ([Rokid](https://global.rokid.com))
+- **AOW M5** air-mouse remote
+- **GT3 mini drone**, with the KY UFO app (Wi-Fi name `FLOW-UFO-...`)
 
 ## Requirements
 

@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.PatternMatcher
@@ -58,7 +59,14 @@ import java.net.Socket
  * While connected the pod is on the drone's Wi-Fi, so home network, internet and PC adb are unavailable until you leave.
  */
 object Drone {
-    const val SSID_PREFIX = "FLOW-UFO"
+    /** Start of the drone's Wi-Fi name, changeable for other drones. */
+    var ssidPrefix by mutableStateOf("FLOW-UFO")
+    /** A stream address the user typed; empty = find it automatically. */
+    var customUrl by mutableStateOf("")
+    private var found = ""
+    val url: String get() = customUrl.ifEmpty { found.ifEmpty { URL } }
+    val host: String get() = runCatching { Uri.parse(url).host }.getOrNull() ?: HOST
+    val port: Int get() = runCatching { Uri.parse(url).port }.getOrNull()?.takeIf { it > 0 } ?: 554
     const val HOST = "192.168.1.1"
     const val RTSP_PORT = 7070
     private const val CONTROL_PORT = 7099
@@ -68,6 +76,8 @@ object Drone {
     var immersive by mutableStateOf(false)
     var dim by mutableFloatStateOf(0f)        // AR dim for the drone view only
     var fill by mutableStateOf(true)
+    var vr by mutableStateOf(false)            // side-by-side view for each eye
+    var vrGap by mutableFloatStateOf(0f)       // moves the two pictures toward or away from each other
     var zoom by mutableFloatStateOf(1f)
     var offX by mutableFloatStateOf(0f)
     var offY by mutableFloatStateOf(0f)
@@ -82,13 +92,15 @@ object Drone {
     @Volatile private var heartbeatOn = false
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE)
+    /** Only the KY UFO family gets its heartbeat. */
+    val isKyUfo get() = host == HOST
     fun load(ctx: Context) {
         val p = sp(ctx); menuOn = p.getBoolean("droneMenu", true); dim = p.getFloat("droneDim", 0f); fill = p.getBoolean("droneFill", true)
-        zoom = p.getFloat("droneZoom", 1f); offX = p.getFloat("droneX", 0f); offY = p.getFloat("droneY", 0f)
+        vr = p.getBoolean("droneVr", false); vrGap = p.getFloat("droneVrGap", 0f); ssidPrefix = p.getString("droneSsid", "FLOW-UFO")!!; customUrl = p.getString("droneUrl", "")!!; zoom = p.getFloat("droneZoom", 1f); offX = p.getFloat("droneX", 0f); offY = p.getFloat("droneY", 0f)
     }
     fun save(ctx: Context) {
         sp(ctx).edit().putBoolean("droneMenu", menuOn).putFloat("droneDim", dim).putBoolean("droneFill", fill)
-            .putFloat("droneZoom", zoom).putFloat("droneX", offX).putFloat("droneY", offY).apply()
+            .putBoolean("droneVr", vr).putFloat("droneVrGap", vrGap).putString("droneSsid", ssidPrefix).putString("droneUrl", customUrl).putFloat("droneZoom", zoom).putFloat("droneX", offX).putFloat("droneY", offY).apply()
     }
 
     fun log(ctx: Context, s: String) {
@@ -99,10 +111,10 @@ object Drone {
     /** Ask Android to join the drone's network. It's released again by [leave], which returns the pod to home Wi-Fi. */
     fun join(ctx: Context) {
         if (callback != null || linked) return
-        if (Build.VERSION.SDK_INT < 29) { status = "Join $SSID_PREFIX in Wi-Fi settings"; return }
+        if (Build.VERSION.SDK_INT < 29) { status = "Join $ssidPrefix in Wi-Fi settings"; return }
         joining = true; status = "Joining the drone's Wi-Fi… accept the prompt if one appears"
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
-        val spec = WifiNetworkSpecifier.Builder().setSsidPattern(PatternMatcher(SSID_PREFIX, PatternMatcher.PATTERN_PREFIX)).build()
+        val spec = WifiNetworkSpecifier.Builder().setSsidPattern(PatternMatcher(ssidPrefix, PatternMatcher.PATTERN_PREFIX)).build()
         val req = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).setNetworkSpecifier(spec).build()
         val cb = object : ConnectivityManager.NetworkCallback() {
@@ -123,8 +135,39 @@ object Drone {
         status = "Not connected"
     }
 
-    /** True if the drone's RTSP port accepts a connection (works however the pod got onto its Wi-Fi). */
-    fun probe(): Boolean = runCatching { Socket().use { it.connect(InetSocketAddress(HOST, RTSP_PORT), 1500) }; true }.getOrDefault(false)
+    /**
+     * Looks for an RTSP camera: on the Wi-Fi gateway and the addresses these drones commonly use, asking each common path
+     * whether it has a stream. There's no standard, so a drone that doesn't use RTSP needs its own support.
+     */
+    fun probe(ctx: Context): Boolean {
+        if (customUrl.isNotEmpty()) {
+            val h = host; val p = port
+            return runCatching { Socket().use { it.connect(InetSocketAddress(h, p), 1500) }; true }.getOrDefault(false)
+        }
+        @Suppress("DEPRECATION") val gw = runCatching {
+            val g = ctx.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java).dhcpInfo.gateway
+            "${g and 255}.${g shr 8 and 255}.${g shr 16 and 255}.${g shr 24 and 255}"
+        }.getOrDefault("")
+        val hosts = listOf(HOST, gw, "192.168.0.1", "192.168.10.1", "192.168.169.1", "172.16.10.1").filter { it.isNotEmpty() && it != "0.0.0.0" }.distinct()
+        for (h in hosts) for (p in listOf(RTSP_PORT, 554, 8554)) {
+            val open = runCatching { Socket().use { it.connect(InetSocketAddress(h, p), 500) }; true }.getOrDefault(false)
+            if (!open) continue
+            if (h == HOST && p == RTSP_PORT) { found = URL; return true }   // the KY UFO family answers here
+            for (path in listOf("/webcam", "/live", "/", "/11", "/stream", "/h264")) {
+                val u = "rtsp://$h:$p$path"
+                val ok = runCatching {
+                    Socket().use { s ->
+                        s.connect(InetSocketAddress(h, p), 800); s.soTimeout = 1200
+                        s.getOutputStream().write("DESCRIBE $u RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n".toByteArray())
+                        val b = ByteArray(256); val n = s.getInputStream().read(b)
+                        n > 0 && String(b, 0, n).contains(" 200 ")
+                    }
+                }.getOrDefault(false)
+                if (ok) { found = u; log(ctx, "found a stream at $u"); return true }
+            }
+        }
+        return false
+    }
 
     /** The same "viewer here" heartbeat the other KY UFO tools send (not a flight command). */
     suspend fun heartbeat(ctx: Context) = withContext(Dispatchers.IO) {
@@ -153,19 +196,19 @@ private fun DroneVideo() {
     val tryNumber = Drone.attempt
     val stream = remember { arrayOfNulls<DroneStream>(1) }
     val texture = remember { arrayOfNulls<SurfaceTexture>(1) }
-    fun begin() {
-        val st = texture[0] ?: return
-        stream[0]?.stop()
-        // UDP first; every second attempt uses TCP
-        stream[0] = DroneStream(ctx.applicationContext, Drone.URL, Drone.HOST, Drone.RTSP_PORT, Surface(st), tryNumber % 2 == 1,
+    var ready by remember { mutableStateOf(false) }
+    // exactly one connection at a time: the camera accepts a single viewer
+    LaunchedEffect(tryNumber, ready) {
+        val st = texture[0]
+        if (!ready || st == null) return@LaunchedEffect
+        stream[0]?.stop(); delay(400)
+        stream[0] = DroneStream(ctx.applicationContext, Drone.url, Drone.host, Drone.port, Surface(st), false, Drone.isKyUfo,
             onSize = { w, h -> if (h > 0) aspect = w.toFloat() / h },
-            onLive = { Drone.live = true; Drone.failures = 0; Drone.status = "Live"; Drone.log(ctx, "first frame, attempt $tryNumber") },
-            onFail = { why -> Drone.live = false; Drone.failures++; Drone.status = "No picture yet (try ${Drone.failures}): $why"; if (Drone.failures == 2) Drone.wake(ctx) }
-        ).also { Drone.log(ctx, "attempt $tryNumber " + if (tryNumber % 2 == 1) "TCP" else "UDP"); it.start() }
+            onLive = { Drone.live = true; Drone.failures = 0; Drone.status = "Live"; Drone.log(ctx, "live") },
+            onFail = { why -> Drone.live = false; Drone.failures++; Drone.status = "No picture yet (try ${Drone.failures}): $why" }
+        ).also { it.start() }
     }
-    LaunchedEffect(tryNumber) { begin() }
-    LaunchedEffect(Drone.failures) { if (Drone.failures > 0 && !Drone.live) { delay(2000); Drone.attempt = tryNumber + 1 } }
-    DisposableEffect(Unit) { onDispose { stream[0]?.stop() } }
+    DisposableEffect(Unit) { onDispose { stream[0]?.stop(); if (DroneRecorder.recording) DroneRecorder.stop { } } }
     val m = if (Drone.fill) Modifier.fillMaxSize() else Modifier.fillMaxHeight().aspectRatio(aspect, matchHeightConstraintsFirst = true)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // TextureView, because zoom and position are applied to the view
@@ -173,9 +216,9 @@ private fun DroneVideo() {
             TextureView(c).apply {
                 isFocusable = false
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) { texture[0] = st; begin() }
+                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) { texture[0] = st; ready = true }
                     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
-                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean { stream[0]?.stop(); texture[0] = null; return true }
+                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean { stream[0]?.stop(); texture[0] = null; ready = false; return true }
                     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
                 }
             }
@@ -192,13 +235,13 @@ fun DroneStage() {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) {
         while (true) {
-            val ok = withContext(Dispatchers.IO) { Drone.probe() }
-            if (ok && !Drone.linked) { Drone.linked = true; Drone.status = "Drone found, starting video…"; Drone.log(ctx, "RTSP port answered") }
-            if (!ok && Drone.linked) { Drone.linked = false; Drone.live = false; Drone.status = "Lost the drone"; Drone.log(ctx, "RTSP port stopped answering") }
+            // once linked, the video stream itself shows whether the drone is there: the camera takes one connection at a time
+            if (!Drone.linked && withContext(Dispatchers.IO) { Drone.probe(ctx) }) { Drone.linked = true; Drone.failures = 0; Drone.status = "Drone found, starting video…"; Drone.log(ctx, "RTSP port answered") }
+            if (Drone.linked && Drone.failures >= 12) { Drone.linked = false; Drone.live = false; Drone.status = "Lost the drone"; Drone.log(ctx, "starting over after 12 failures") }
             delay(2500)
         }
     }
-    LaunchedEffect(Drone.linked) { if (Drone.linked) Drone.heartbeat(ctx) }
+    LaunchedEffect(Drone.linked) { if (Drone.linked && Drone.isKyUfo) Drone.heartbeat(ctx) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (Drone.linked) DroneVideo()
         if (Drone.dim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = Drone.dim.coerceIn(0f, 1f))))
@@ -214,12 +257,29 @@ fun DroneRows(showOptOut: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (showOptOut) Adjust("Show the Drone menu", if (Drone.menuOn) "yes" else "no", { change { Drone.menuOn = !Drone.menuOn } }) { change { Drone.menuOn = !Drone.menuOn } }
         Row_("⛶ Immersive view (any button returns)", false, id = "dr:imm", onFocus = {}) { Drone.immersive = true }
+        if (!showOptOut) {
+            var rec by remember { mutableStateOf(DroneRecorder.recording) }
+            var saved by remember { mutableStateOf("") }
+            Row_(if (rec) "⏹ Stop recording" else "⏺ Record video", rec, id = "dr:rec", onFocus = {}) {
+                if (rec) { rec = false; Thread { DroneRecorder.stop { w -> saved = w ?: "Nothing recorded" } }.start() }
+                else if (Drone.live) { DroneRecorder.start(ctx); rec = true; saved = "" } else saved = "Wait for the picture first"
+            }
+            if (saved.isNotEmpty()) Text(saved, color = DIM, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 12.dp))
+        }
         Adjust("AR dim, drone only", pct(Drone.dim), { change { Drone.dim = (Drone.dim - 0.05f).coerceAtLeast(0f) } }, compact = !showOptOut) { change { Drone.dim = (Drone.dim + 0.05f).coerceAtMost(1f) } }
+        Adjust("VR dual view", if (Drone.vr) "on" else "off", { change { Drone.vr = !Drone.vr } }, compact = !showOptOut) { change { Drone.vr = !Drone.vr } }
+        if (Drone.vr) Adjust("VR eye distance", pct(Drone.vrGap), { change { Drone.vrGap = (Drone.vrGap - 0.02f).coerceAtLeast(-0.3f) } }, compact = !showOptOut) { change { Drone.vrGap = (Drone.vrGap + 0.02f).coerceAtMost(0.3f) } }
         Adjust("Picture", if (Drone.fill) "Fill screen" else "Keep shape", { change { Drone.fill = !Drone.fill } }, compact = !showOptOut) { change { Drone.fill = !Drone.fill } }
         Adjust("Size", pct(Drone.zoom), { change { Drone.zoom = (Drone.zoom - 0.05f).coerceAtLeast(0.2f) } }, compact = !showOptOut) { change { Drone.zoom = (Drone.zoom + 0.05f).coerceAtMost(4f) } }
         Adjust("Position ←→", pct(Drone.offX), { change { Drone.offX -= 0.02f } }, compact = !showOptOut) { change { Drone.offX += 0.02f } }
         Adjust("Position ↕", pct(Drone.offY), { change { Drone.offY -= 0.02f } }, compact = !showOptOut) { change { Drone.offY += 0.02f } }
         Row_("↺ Reset picture", false, id = "dr:reset", onFocus = {}) { change { Drone.zoom = 1f; Drone.offX = 0f; Drone.offY = 0f; Drone.fill = true } }
+        fun ask(title: String, value: String, done: (String) -> Unit) {
+            val box = android.widget.EditText(ctx).apply { setText(value); setSingleLine() }
+            android.app.AlertDialog.Builder(ctx).setTitle(title).setView(box).setPositiveButton("Save") { _, _ -> done(box.text.toString().trim()); Drone.save(ctx) }.setNegativeButton("Cancel", null).show()
+        }
+        Row_("Drone Wi-Fi name starts with: " + Drone.ssidPrefix, false, id = "dr:ssid", small = true, onFocus = {}) { ask("Drone Wi-Fi name starts with", Drone.ssidPrefix) { if (it.isNotEmpty()) Drone.ssidPrefix = it } }
+        Row_("Stream address: " + Drone.customUrl.ifEmpty { "find automatically" }, false, id = "dr:url", small = true, onFocus = {}) { ask("Stream address (rtsp://…), empty = automatic", Drone.customUrl.ifEmpty { "rtsp://" }) { Drone.customUrl = if (it == "rtsp://") "" else it } }
     }
 }
 
@@ -229,14 +289,14 @@ fun DroneTab() {
     Panel(Modifier.padding(start = 24.dp, bottom = 8.dp).width(256.dp).fillMaxHeight()) {
         Text("DRONE · KY UFO", color = CYAN, fontSize = 12.sp, letterSpacing = 1.5.sp)
         Text(Drone.status, color = if (Drone.live) GREEN else AMBER, fontSize = 10.sp, modifier = Modifier.padding(bottom = 4.dp).fillMaxWidth())
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item {
                 if (Drone.linked || Drone.joining) Row_("✕ Disconnect, back to home Wi-Fi", false, id = "dr:leave", onFocus = {}) { Drone.leave(ctx) }
                 else Row_("▶ Connect to the drone", false, id = "dr:join", onFocus = {}) { Drone.join(ctx) }
             }
             item { Row_("📶 Wi-Fi settings  ›", false, id = "dr:wifi", onFocus = {}) { runCatching { ctx.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } }
             item { DroneRows(showOptOut = false) }
-            item { Text("Video only: Starshine never sends flight commands. While connected the pod has no home network or internet. Fly by line of sight.", color = DIM, fontSize = 9.sp, modifier = Modifier.padding(8.dp)) }
+            item { Text("Video only: Starshine never sends flight commands. While connected the pod has no home network or internet. Recordings go to Movies/Starshine. Fly by line of sight.", color = DIM, fontSize = 9.sp, modifier = Modifier.padding(8.dp)) }
         }
     }
 }

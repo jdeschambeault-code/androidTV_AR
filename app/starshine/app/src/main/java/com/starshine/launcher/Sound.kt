@@ -21,6 +21,8 @@ object Sound {
     private var kind = ""                       // "ambient" | "tone"
     private var ambientMode = "Off"
     private var tone: Tone? = null
+    private var stack: AudioStack? = null
+    private var stackBlend = 3f
     /** current tone for the visualizer (null when an ambient sound or nothing is playing) */
     val toneNow: Tone? get() = if (kind == "tone") tone else null
     @Volatile private var holding = false
@@ -29,6 +31,7 @@ object Sound {
     private val handler = Handler(Looper.getMainLooper())
 
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
+        AudioProbe.focus("audio focus changed: $change")
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> pauseEngines()
             AudioManager.AUDIOFOCUS_GAIN -> if (!holding) resumeEngines()
@@ -53,12 +56,12 @@ object Sound {
         return m.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
     }
 
-    private fun pauseEngines() { pausedByOther = true; Ambient.stop(); Tones.stop() }
+    private fun pauseEngines() { AudioProbe.event("sound paused for another app"); pausedByOther = true; Ambient.stop(); Tones.stop(); AudioMix.stop() }
 
     private fun resumeEngines() {
         if (holding) return
         pausedByOther = false
-        when (kind) { "ambient" -> Ambient.apply(ambientMode, Ambient.volume); "tone" -> tone?.let { Tones.play(it) } }
+        when (kind) { "ambient" -> Ambient.apply(ambientMode, Ambient.volume); "tone" -> tone?.let { Tones.play(it) }; "stack" -> stack?.let { AudioMix.set(it, stackBlend) } }
     }
 
     private fun start(label: String) {
@@ -67,12 +70,20 @@ object Sound {
     }
 
     fun playAmbient(ctx: Context, mode: String, vol: Float = Ambient.volume) {
-        init(ctx); Tones.stop(); Ambient.volume = vol
+        init(ctx); Tones.stop(); AudioMix.stop(); Ambient.volume = vol
         if (mode == "Off" || mode !in Ambient.MODES) { stop(); return }   // also covers sounds removed since they were last chosen
         kind = "ambient"; ambientMode = mode; Ambient.stop(); start(mode)
     }
 
-    fun playTone(ctx: Context, t: Tone) { init(ctx); Ambient.stop(); kind = "tone"; tone = t; Tones.stop(); start(t.name) }
+    /** Audio layers. If layers are already playing, this blends into the new stack instead of restarting. */
+    fun playStack(ctx: Context, s: AudioStack, blendSec: Float) {
+        init(ctx); Ambient.stop(); Tones.stop()
+        val wasStack = kind == "stack" && !pausedByOther
+        kind = "stack"; stack = s; stackBlend = blendSec
+        if (wasStack) { current = s.name; AudioMix.set(s, blendSec) } else start(s.name)
+    }
+
+    fun playTone(ctx: Context, t: Tone) { init(ctx); Ambient.stop(); AudioMix.stop(); kind = "tone"; tone = t; Tones.stop(); start(t.name) }
 
     /** live parameter change while a tone is selected */
     fun updateTone(t: Tone) { tone = t; if (kind == "tone" && Tones.playing) Tones.update(t) }
@@ -80,7 +91,7 @@ object Sound {
     fun setAmbientVolume(v: Float) { Ambient.volume = v }
 
     /** Voice command: keep the sound silent for the whole listening session (the recognizer briefly owns the audio). */
-    fun hold() { holding = true; if (current.isNotEmpty()) { Ambient.stop(); Tones.stop() } }
+    fun hold() { holding = true; if (current.isNotEmpty()) { Ambient.stop(); Tones.stop(); AudioMix.stop() } }
 
     /** Voice finished: resume shortly after, unless another app took over meanwhile. */
     fun release(delayMs: Long = 1000) {
@@ -91,7 +102,7 @@ object Sound {
     }
 
     fun stop() {
-        kind = ""; current = ""; pausedByOther = false; Ambient.stop(); Ambient.mode = "Off"; Tones.stop()
+        kind = ""; current = ""; pausedByOther = false; Ambient.stop(); Ambient.mode = "Off"; Tones.stop(); AudioMix.stop()
         handler.removeCallbacks(watchdog); focusReq?.let { am?.abandonAudioFocusRequest(it) }
     }
 }

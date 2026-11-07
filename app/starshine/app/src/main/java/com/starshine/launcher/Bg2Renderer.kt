@@ -37,7 +37,7 @@ import kotlin.math.sin
  * Node links read the texture of the other node from the same frame or, for a node later in the stack, the previous frame.
  * Budget for the Mali-G31: 960x540 output, soft fields at 480x270, 30 fps by default.
  */
-class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene = { Bg2.current }, private val reactive: () -> Boolean = { Bg2.reactOn }, private val monitor: Boolean = false) : GLSurfaceView.Renderer {
+class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene = { Bg2.current }, private val reactive: () -> Boolean = { Bg2.reactOn }, private val monitor: Boolean = false, private val live: Boolean = true) : GLSurfaceView.Renderer {
     private class Prog(val id: Int) { val u = HashMap<String, Int>(); fun loc(n: String) = u.getOrPut(n) { GLES20.glGetUniformLocation(id, n) } }
     private class Target(val fbo: Int, val tex: Int, val w: Int, val h: Int)
     private class Phase { var t = 0f; var spin = 0f; var hue = 0f }
@@ -113,18 +113,21 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
     }
     private val main = Handler(Looper.getMainLooper())
     private var viewW = 960; private var viewH = 540
+    private var lightTimer = 0f
+    private val lightBuf = ByteBuffer.allocateDirect(16 * 16 * 4).order(ByteOrder.nativeOrder())
     private var last = 0L
     @Volatile var fps30 = true
     private val tri: FloatBuffer = ByteBuffer.allocateDirect(6 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(floatArrayOf(-1f, -1f, 3f, -1f, -1f, 3f)); position(0) }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // a new GL context invalidates every GL object
-        progs.clear(); targets.clear(); meshes.clear(); releaseMedia(); canvases.values.forEach { it.stop() }; canvases.clear(); last = System.nanoTime()
+        clipA = null; clipB = null; progs.clear(); targets.clear(); meshes.clear(); releaseMedia(); canvases.values.forEach { it.stop() }; canvases.clear(); last = System.nanoTime()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) { viewW = width; viewH = height }
 
     override fun onDrawFrame(gl: GL10?) {
+        AudioProbe.frame()
         val now = System.nanoTime()
         val dt = ((now - last) / 1e9f).coerceIn(0.001f, 0.25f)
         if (fps30 && dt < 0.030f) { Thread.sleep(((0.032f - dt) * 1000).toLong().coerceAtLeast(1L)) }
@@ -135,40 +138,97 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
     /** One frame to the current framebuffer 0. Also used by the MP4 exporter. */
     fun renderFrame(scene: BgScene, dt: Float, w: Int, h: Int) {
         AudioBands.tick(dt)
-        val active = scene.layers.filter { it.on }
+        // a journey's transition: both clips keep running. The nodes of the two scenes take turns, which keeps this chip's
+        // frame rate and leaves time for the audio, while the mix itself updates every frame.
+        val from = if (live && !monitor) Bg2.blendFrom else null
+        val mix = Bg2.blendMix
+        if (from == null) blendFrame = 0
+        val active = scene.layers.filter { it.on } + (from?.layers?.filter { it.on } ?: emptyList())
+        targets.keys.toList().filter { id -> active.none { it.id == id } }.forEach { id -> targets.remove(id)?.let { deleteTarget(it) } }
         // nodes removed from the scene give their media back
         media.keys.toList().filter { id -> active.none { it.id == id && it.kind == GenKind.Media } }.forEach { releaseMedia(it) }
         canvases.keys.toList().filter { id -> active.none { it.id == id && it.kind == GenKind.Canvas } }.forEach { releaseCanvas(it) }
         GLES20.glDisable(GLES20.GL_DEPTH_TEST); GLES20.glDisable(GLES20.GL_CULL_FACE)
 
-        for (l in active) renderNode(l, dt)
+        if (from == null) for (l in active) renderNode(l, dt)
+        else {
+            val turn = blendFrame % 2 == 0; val firstFrame = blendFrame == 0; blendFrame++
+            for (l in from.layers) if (l.on && (firstFrame || turn)) renderNode(l, if (firstFrame) dt else dt * 2f)
+            for (l in scene.layers) if (l.on && (firstFrame || !turn)) renderNode(l, if (firstFrame) dt else dt * 2f)
+        }
 
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, w, h)
         GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (monitor && !Bg2.fullPreview) {
-            // workspace: result in the monitor area, every node's own picture as a live tile underneath
+            // workspace: result in the monitor area; the layers under it are plain icons drawn by the interface
             val k = w / 960f
             val vx = (Stage.X * k).toInt(); val vw = (Stage.W * k).toInt(); val vh = (Stage.H * k).toInt(); val vy = h - (Stage.Y * k).toInt() - vh
             GLES20.glViewport(vx, vy, vw, vh)
             val solo = Bg2.soloId
             for (l in active) if (if (solo >= 0) l.id == solo else l.show) composite(l, scene)
-            GLES20.glDisable(GLES20.GL_BLEND)
-            val n = scene.layers.size
-            program("blit", FULL_VS, BLIT_FS)?.let { p ->
-                GLES20.glUseProgram(p.id); GLES20.glUniform1i(p.loc("TEX"), 0); GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                scene.layers.forEachIndexed { i, l ->
-                    val t = targets[l.id]
-                    if (l.on && t != null) {
-                        val tw = (Stage.tileW(n) * k).toInt(); val th = (Stage.tileH(n) * k).toInt()
-                        GLES20.glViewport((Stage.tileX(i, n) * k).toInt(), h - (Stage.TILE_Y * k).toInt() - th, tw, th)
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t.tex)
-                        fullscreen()
-                    }
-                }
-            }
-        } else for (l in active) if (l.show) composite(l, scene)
+        } else {
+            if (from != null) drawTransition(from, scene, mix, w, h)
+            else for (l in scene.layers) if (l.on && l.show) composite(l, scene)
+        }
         GLES20.glDisable(GLES20.GL_BLEND)
+        lightTimer += dt
+        if (lightTimer > 0.5f) {   // a small sample twice a second: enough to follow the picture, too little to slow it
+            lightTimer = 0f
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            lightBuf.clear()
+            GLES20.glReadPixels(w / 2 - 8, h / 2 - 8, 16, 16, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, lightBuf)
+            var sum = 0
+            for (i in 0 until 256) { sum += (lightBuf.get(i * 4).toInt() and 255) + (lightBuf.get(i * 4 + 1).toInt() and 255) + (lightBuf.get(i * 4 + 2).toInt() and 255) }
+            Bg2.sceneLight += (sum / (256f * 765f) - Bg2.sceneLight) * 0.3f
+        }
+    }
+
+    private var clipA: Target? = null
+    private var clipB: Target? = null
+    private var blendFrame = 0
+
+    private fun clip(old: Target?, w: Int, h: Int): Target {
+        if (old != null && old.w == w && old.h == h) return old
+        old?.let { deleteTarget(it) }
+        val tex = IntArray(1); val fbo = IntArray(1)
+        GLES20.glGenTextures(1, tex, 0); GLES20.glGenFramebuffers(1, fbo, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0])
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+        clampLinear(GLES20.GL_TEXTURE_2D)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, tex[0], 0)
+        return Target(fbo[0], tex[0], w, h)
+    }
+
+    private fun drawClip(t: Target, scene: BgScene, factor: (Int, Layer) -> Float) {
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, t.fbo)
+        GLES20.glViewport(0, 0, t.w, t.h)
+        GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        scene.layers.forEachIndexed { i, l -> if (l.on && l.show) composite(l, scene, factor(i, l)) }
+        GLES20.glDisable(GLES20.GL_BLEND)
+    }
+
+    /** Two clips crossing over. With a layer offset the new scene's layers arrive one after another, the leading layer first. */
+    private fun drawTransition(from: BgScene, scene: BgScene, mix: Float, w: Int, h: Int) {
+        val a = clip(clipA, w, h).also { clipA = it }; val b = clip(clipB, w, h).also { clipB = it }
+        val lead = Bg2.blendLead; val offset = Bg2.blendOffset
+        val order = scene.layers.sortedBy { if (it.id == lead) -1 else scene.layers.indexOf(it) }.map { it.id }
+        val n = (order.size - 1).coerceAtLeast(1)
+        drawClip(a, from) { _, _ -> 1f }
+        drawClip(b, scene) { _, l -> if (offset <= 0f) 1f else (mix * (1f + offset) - offset * order.indexOf(l.id) / n).coerceIn(0f, 1f) }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glViewport(0, 0, w, h)
+        val p = program("trans", FULL_VS, TRANS_FS) ?: return
+        GLES20.glUseProgram(p.id); GLES20.glDisable(GLES20.GL_BLEND)
+        val matte = targets[lead]
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, matte?.tex ?: b.tex)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, b.tex)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, a.tex)
+        GLES20.glUniform1i(p.loc("A"), 0); GLES20.glUniform1i(p.loc("B"), 1); GLES20.glUniform1i(p.loc("M"), 2)
+        GLES20.glUniform1f(p.loc("T"), mix); GLES20.glUniform1f(p.loc("MODE"), Bg2.blendMode.toFloat())
+        GLES20.glUniform1f(p.loc("LEAD"), if (matte != null) 1f else 0f); GLES20.glUniform1f(p.loc("ASP"), w.toFloat() / h)
+        fullscreen()
     }
 
     /* ---------- modulation ---------- */
@@ -252,7 +312,8 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
 
     private fun drawLines(l: Layer, ph: Phase, hue: Float, glow: Float, size: Float, detail: Float, t: Target) {
         val p = program("line", LINE_VS, LINE_FS) ?: return
-        val m = meshes.getOrPut(l.type) { uploadRibbons(Geometry.of(l.type)) }
+        val dim = if (Solids.isHyper(l.type)) Solids.dimOf(l.type, l["dim"]) else 0
+        val m = meshes.getOrPut(if (dim > 0) l.type + dim else l.type) { uploadRibbons(Geometry.of(l.type, dim)) }
         GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE)
         GLES20.glUseProgram(p.id)
         val solid = l.kind == GenKind.Solid
@@ -385,7 +446,7 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
 
     /* ---------- composite ---------- */
 
-    private fun composite(l: Layer, scene: BgScene) {
+    private fun composite(l: Layer, scene: BgScene, factor: Float = 1f) {
         val t = targets[l.id] ?: return
         val p = program("comp", FULL_VS, COMP_FS) ?: return
         GLES20.glUseProgram(p.id)
@@ -404,7 +465,7 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
             else -> GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE)
         }
         val wAmt = l["warpAmt"] * (1f + 2f * mod(l, 5))
-        GLES20.glUniform1f(p.loc("OP"), (l["opacity"] * (1f + mod(l, 1))).coerceIn(0f, 1f))
+        GLES20.glUniform1f(p.loc("OP"), (l["opacity"] * (1f + mod(l, 1))).coerceIn(0f, 1f) * factor)
         GLES20.glUniform1f(p.loc("FOLD"), l["fold"]); GLES20.glUniform1f(p.loc("MSK"), if (mask != null) l["maskAmt"] else 0f)
         // Warp reaction with no linked node ripples the texture by itself
         GLES20.glUniform1f(p.loc("WRP"), if (warp != null) wAmt else 0f)
@@ -561,6 +622,35 @@ float inside(vec2 q) { return step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) *
         private const val MEDIA_OES_FS = "#extension GL_OES_EGL_image_external : require\nprecision mediump float; uniform samplerExternalOES TEX;" + MEDIA_COMMON +
             "void main(){ vec2 q = place(); float m = inside(q); q.y = 1.0 - q.y; gl_FragColor = vec4(hueSat(texture2D(TEX, q).rgb) * GLOW * m, 1.0); }"
 
+        private const val TRANS_FS = """
+precision mediump float;
+varying vec2 v; uniform sampler2D A; uniform sampler2D B; uniform sampler2D M;
+uniform float T; uniform float MODE; uniform float LEAD; uniform float ASP;
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec3 a = texture2D(A, v).rgb; vec3 b = texture2D(B, v).rgb; vec3 c;
+  vec2 p = (v - 0.5) * vec2(ASP, 1.0);
+  float e = 0.18;
+  float k = T;
+  if (MODE > 0.5 && MODE < 1.5) {            // dip to black
+    c = T < 0.5 ? a * (1.0 - 2.0 * T) : b * (2.0 * T - 1.0);
+    gl_FragColor = vec4(c, 1.0); return;
+  }
+  if (LEAD > 0.5 || (MODE > 1.5 && MODE < 2.5)) {   // luma: bright parts arrive first, from the leading layer if one is chosen
+    float l = lum(texture2D(M, v).rgb);
+    k = smoothstep(1.0 - l - 0.3, 1.0 - l + 0.3, T * 1.6 - 0.3);
+  } else if (MODE > 2.5 && MODE < 3.5) {     // wipe
+    k = smoothstep(v.x - e, v.x + e, T * (1.0 + 2.0 * e) - e);
+  } else if (MODE > 3.5 && MODE < 4.5) {     // iris
+    float r = length(p) / 1.05;
+    k = smoothstep(r - e, r + e, T * (1.0 + 2.0 * e) - e);
+  } else if (MODE > 4.5) {                   // spiral
+    float r = length(p) / 1.05; float ang = fract(atan(p.y, p.x) / 6.28318 + 0.5 + r);
+    float d = r * 0.5 + ang * 0.5;
+    k = smoothstep(d - e, d + e, T * (1.0 + 2.0 * e) - e);
+  }
+  gl_FragColor = vec4(mix(a, b, k), 1.0);
+}"""
         private const val BLIT_FS = "precision mediump float; varying vec2 v; uniform sampler2D TEX; void main(){ gl_FragColor = vec4(texture2D(TEX, v).rgb, 1.0); }"
 
         private const val COMP_FS = """
@@ -606,11 +696,11 @@ void main() {
 }
 
 /** Geometry as line segments (6 floats each), all in roughly the -1..1 range. */
-private object Geometry {
+object Geometry {
     private const val TAU = 6.2831855f
     private val PHI = ((1 + Math.sqrt(5.0)) / 2).toFloat()
 
-    fun of(name: String): FloatArray = when (name) {
+    fun of(name: String, dim: Int = 0): FloatArray = when (name) {
         "Flower of Life" -> flower(2, 0.21f)
         "Seed of Life" -> flower(1, 0.32f)
         "Metatron's Cube" -> metatron()
@@ -625,7 +715,7 @@ private object Geometry {
         "Star tetrahedron" -> edges(TETRA, 0.85f) + edges(TETRA.map { floatArrayOf(-it[0], -it[1], -it[2]) }.toTypedArray(), 0.85f)
         "Nested solids" -> edges(dodeca(), 0.72f) + edges(ICOSA, 0.46f) + edges(CUBE, 0.28f) + edges(TETRA, 0.3f)
         "Torus" -> torus()
-        else -> flower(2, 0.21f)
+        else -> Solids.of(name, dim) ?: flower(2, 0.21f)
     }
 
     private fun circle(out: ArrayList<Float>, cx: Float, cy: Float, r: Float, segs: Int = 56) {

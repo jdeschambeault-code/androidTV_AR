@@ -26,6 +26,8 @@ module.exports = {
       { default: running.mirror, icon: "fa-solid fa-display", text: running.mirror ? "Mirroring" : "Mirror on PC", href: "mirror.js" },
       { icon: "fa-solid fa-clipboard-list", text: "Device Report", href: "report.js" },
       { icon: "fa-solid fa-memory", text: "RAM Report", href: "ram.js" },
+      { icon: "fa-solid fa-xmark", text: "Force Close Apps", href: "forceclose.js" },
+      { icon: "fa-solid fa-sitemap", text: "Navigation Test", href: "navtest.js" },
       { icon: "fa-brands fa-usb", text: "USB Driver Doctor", href: "usb.js" },
       { icon: "fa-solid fa-box-open", text: "Sideload APK", href: "sideload.js" },
       { icon: "fa-solid fa-film", text: "Send Video to Pod", href: "sendvideo.js" },
@@ -38,6 +40,8 @@ module.exports = {
       { icon: "fa-solid fa-star", text: "Get NASA Nebula Photos", href: "nebulae.js" },
       { icon: "fa-solid fa-sliders", text: "Tweaks", href: "tweaks.js" },
       { icon: "fa-solid fa-heart", text: "Enter Support Key", href: "supportkey.js" },
+      // maintainer only: appears on the PC that holds the private signing key
+      ...(require("fs").existsSync(require("path").join(require("os").homedir(), ".starshine", "support-key.pem")) ? [{ icon: "fa-solid fa-key", text: "Issue Support Key", href: "issuekey.js" }] : []),
       info.exists("tools/android-sdk/build-tools")
         ? { icon: "fa-solid fa-hammer", text: info.running("build.js") ? "Building Starshine…" : "Build & Install Starshine", href: "build.js" }
         : { icon: "fa-solid fa-toolbox", text: info.running("build-setup.js") ? "Installing build tools…" : "Install APK Build Tools", href: "build-setup.js" },

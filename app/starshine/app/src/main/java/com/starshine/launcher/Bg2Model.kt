@@ -32,8 +32,9 @@ val GENERATORS: List<Generator> = listOf(
     Generator("Clouds", GenKind.Screen), Generator("Fire", GenKind.Screen), Generator("Water", GenKind.Screen), Generator("Nebula", GenKind.Screen),
     Generator("Iris", GenKind.Screen), Generator("Sun flare", GenKind.Screen), Generator("Candle", GenKind.Screen),
     Generator("Globe", GenKind.Screen), Generator("Honeycomb", GenKind.Screen), Generator("Aether", GenKind.Screen)
-) + PROCEDURAL.map { Generator(CLASSIC_PREFIX + it, GenKind.Canvas) } + SHADERS.map { Generator(it, GenKind.Classic) } +
-    VISUAL_MODES.filter { it != "Auto" && it != "Off" }.map { Generator(LINES_PREFIX + it, GenKind.Canvas) } + Generator("Media file", GenKind.Media)
+) + Solids.LINES.map { Generator(it, GenKind.Line) } + Solids.SOLIDS.map { Generator(it, GenKind.Solid) } +
+    PROCEDURAL.map { Generator(CLASSIC_PREFIX + it, GenKind.Canvas) } + SHADERS.map { Generator(it, GenKind.Classic) } +
+    VISUAL_MODES.map { Generator(LINES_PREFIX + it, GenKind.Canvas) } + Generator("Media file", GenKind.Media)
 
 fun generator(name: String) = GENERATORS.firstOrNull { it.name == name } ?: GENERATORS[0]
 
@@ -41,7 +42,7 @@ object BgParams {
     val BLENDS = listOf("Add", "Screen", "Normal", "Multiply")
     val FOLDS = listOf("Off", "Mirror ←→", "Mirror 4-way", "Diamond", "Kaleido 6", "Kaleido 8", "Kaleido 12")
     /** Voice follows speech/chant syllables (300 Hz-3 kHz), Swell is the slow average: the two that suit meditative audio. */
-    val SOURCES = listOf("Voice", "Level", "Bass", "Mid", "High", "Beat", "Swell")
+    val SOURCES = listOf("Voice", "Level", "Bass", "Mid", "High", "Beat", "Swell", "Tone beat", "Tone pitch")
     val TARGETS = listOf("Glow", "Opacity", "Spin", "Size", "Color", "Warp", "Detail", "Fade")
 
     class P(val key: String, val label: String, val def: Float, val step: Float, val min: Float, val max: Float, val fmt: (Float) -> String = { pctf(it) })
@@ -111,7 +112,9 @@ data class BgScene(val name: String, val group: String, val layers: List<Layer>,
     }
 }
 
+val TRANSITIONS = listOf("Cross dissolve", "Dip to black", "Luma dissolve", "Wipe", "Iris", "Spiral")
 const val MY_SCENES = "My scenes"
+const val CLASSIC_GROUP = "Classic backgrounds"
 
 /** Sound-only moods: they never touch the background. */
 data class AudioMood(val name: String, val ambient: String)
@@ -123,6 +126,11 @@ private val VOICE = arrayOf("r1s" to 0f, "r1t" to 0f, "r1a" to 1.2f, "r2s" to 6f
 private val SWELL = arrayOf("r1s" to 6f, "r1t" to 7f, "r1a" to 0.5f)
 
 val BUILT_IN_SCENES: List<BgScene> = listOf(
+    // first in the list: what a new install shows
+    BgScene("Default", "Elements", listOf(
+        L(1, "Sun flare", "warpBy" to 2f, "warpAmt" to 0.32f, "r1s" to 6f, "r1t" to 5f, "r1a" to 0.4f, "blend" to 0f, "scale" to 4.7f, "speed" to 1.3f, "fold" to 4f, "fade" to 0.5f, "hue" to 0f, "opacity" to 1f),
+        L(2, "Dodecahedron", "scale" to 0.7f, "spin" to 0.05f, "hue" to 190f, "sat" to 0.25f, "detail" to 0.75f, "glow" to 0.9f, *VOICE)
+    )),
     BgScene("Temple of Light", "Sacred geometry", listOf(
         L(1, "Starfield", "detail" to 0.35f, "speed" to 0.5f, "opacity" to 0.8f),
         L(2, "Orbs", "hue" to 180f, "opacity" to 0.5f, "detail" to 0.4f),
@@ -212,7 +220,23 @@ object Bg2 {
     var fullPreview by mutableStateOf(false)
     /** Monitor: show just this node (-1 = whole scene). */
     var soloId by mutableIntStateOf(-1)
+    /** A journey blending between scenes: the old scene and how far along the blend is (0..1). */
+    @Volatile var blendFrom: BgScene? = null
+    @Volatile var blendMix = 1f
+    /** Index into [TRANSITIONS]. */
+    @Volatile var blendMode = 0
+    /** Layer of the new scene that leads the transition (-1 = none). */
+    @Volatile var blendLead = -1
+    /** 0 = all layers together, higher = they arrive one after another. */
+    @Volatile var blendOffset = 0f
+    /** How bright the picture is right now (0..1), measured by the renderer. Tone layers can follow it. */
+    @Volatile var sceneLight = 0f
     /** The builder is open: the layer tiles under the monitor are live controls. */
+    /** Add layer is open: the layer tiles can't take the selection, so neither the pointer nor a lost focus can open their settings. */
+    val addingState = androidx.compose.runtime.mutableStateOf(false)
+    var adding by addingState
+    /** Takes the selection to the top of the open settings list, whatever it's scrolled to. */
+    var panelTop: (() -> Unit)? = null
     var building by mutableStateOf(false)
     /** Layer tile picked up for reordering, or -1. */
     var movingNode by mutableIntStateOf(-1)
@@ -236,6 +260,7 @@ object Bg2 {
     private fun sp(ctx: Context) = ctx.getSharedPreferences("starshine_bg2", Context.MODE_PRIVATE)
 
     fun load(ctx: Context) {
+        filesDir = ctx.getExternalFilesDir("backgrounds")
         if (loaded) return
         loaded = true
         val p = sp(ctx)
@@ -244,6 +269,19 @@ object Bg2 {
         reactOn = p.getBoolean("react", true)
         quality = p.getInt("quality", 0)
         preview = current
+    }
+
+    /** Once: the scene that became Default leaves My scenes, and Default becomes the background. */
+    fun adoptDefault(ctx: Context) {
+        val p = sp(ctx)
+        if (p.getBoolean("defaultAdopted", false)) return
+        val d = BUILT_IN_SCENES[0]
+        mine.firstOrNull { it.name == "Water 2" && it.layers.map { l -> l.type } == d.layers.map { l -> l.type } }?.let {
+            mine = mine - it; saveMine(ctx); Med.renameSceneInJourneys(ctx, it.name, d.name)
+        }
+        setCurrent(ctx, d); preview = d
+        ctx.getSharedPreferences("starshine", Context.MODE_PRIVATE).edit().putString("bg", BG2_ID).apply()
+        p.edit().putBoolean("defaultAdopted", true).apply()
     }
 
     fun setCurrent(ctx: Context, s: BgScene) { current = s; sp(ctx).edit().putString("current", s.toJson().toString()).apply() }
@@ -278,8 +316,32 @@ object Bg2 {
         mine = mine.map { if (it.name == scene.name) scene.copy(group = MY_SCENES) else it }; saveMine(ctx); return true
     }
 
+    /** A scene of your own changes name everywhere it's used. A built-in one stays and you get a renamed copy. */
+    fun rename(ctx: Context, old: String, new: String): Boolean {
+        if (taken(new)) return false
+        val s = pristine(old) ?: return false
+        if (mine.any { it.name == old }) {
+            mine = mine.map { if (it.name == old) it.copy(name = new) else it }
+            Med.renameSceneInJourneys(ctx, old, new)
+            if (current.name == old) setCurrent(ctx, current.copy(name = new))
+        } else mine = mine + s.copy(name = new, group = MY_SCENES)
+        saveMine(ctx)
+        if (preview.name == old) preview = preview.copy(name = new)
+        Drafts.renamed(ctx, old, new)
+        return true
+    }
     fun delete(ctx: Context, name: String) { mine = mine.filter { it.name != name }; saveMine(ctx) }
 
+    private var filesDir: java.io.File? = null
+
+    /** A classic background or a file as a scene of one layer, consistent with every other scene. */
+    private fun classic(name: String): BgScene? = when {
+        name in PROCEDURAL -> BgScene(name, CLASSIC_GROUP, listOf(Layer(1, CLASSIC_PREFIX + name)))
+        name in SHADERS -> BgScene(name, CLASSIC_GROUP, listOf(Layer(1, name)))
+        name.startsWith("file:") -> filesDir?.let { d -> BgScene(name.removePrefix("file:"), CLASSIC_GROUP, listOf(Layer(1, "Media file", mapOf("blend" to 2f), java.io.File(d, name.removePrefix("file:")).absolutePath))) }
+        else -> null
+    }
+
     /** The clean definition of a scene: built-ins always come back at their defaults, saved scenes as you saved them. */
-    fun pristine(name: String) = mine.firstOrNull { it.name == name } ?: BUILT_IN_SCENES.firstOrNull { it.name == name }
+    fun pristine(name: String) = mine.firstOrNull { it.name == name } ?: BUILT_IN_SCENES.firstOrNull { it.name == name } ?: classic(name)
 }

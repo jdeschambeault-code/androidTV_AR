@@ -74,7 +74,7 @@ object Exporter {
                 }
             }
         }
-        val renderer = Bg2Renderer(ctx, { scene }, { false })
+        val renderer = Bg2Renderer(ctx, { scene }, { false }, live = false)
         renderer.onSurfaceCreated(null, null)
         renderer.onSurfaceChanged(null, w, h)
         val frames = seconds * fps

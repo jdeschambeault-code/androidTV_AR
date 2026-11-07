@@ -181,8 +181,19 @@ fun BgTab(onApply: (BgScene) -> Unit, onBuild: () -> Unit, onNew: () -> Unit, on
             if (openSections["classic"] != false) items(classics.chunked(ICON_COLUMNS), key = { "cl:" + it.first() }) { row ->
                 IconRow(row, count = { n -> if (Bg2.applied && Bg2.current.group == CLASSIC_GROUP && Bg2.current.name == n.removePrefix("file:")) 1 else 0 }, idOf = { "row:classic:$it" }, height = 40,
                     onHint = { n -> if (n.isNotEmpty()) browsing = n },
-                    // classic backgrounds have no rename or delete: holding OK opens the builder
-                    onHold = { n -> Bg2.pristine(n)?.let { Bg2.preview = it; lastBrowsedScene = n }; onBuild() },
+                    // classic backgrounds have no rename or delete, so their menu is shorter than a scene's
+                    onHold = { n ->
+                        fun shown(s: BgScene) = if (Bg2.preview.name == s.name) Bg2.preview else s
+                        HoldMenu.open(n.removePrefix("file:"), listOf(
+                            HoldMenu.Action("✓ Apply to background") { Bg2.pristine(n)?.let { onApply(shown(it)) } },
+                            HoldMenu.Action("＋ Save to My scenes") {
+                                Bg2.pristine(n)?.let { s ->
+                                    val saved = Bg2.saveAsNew(ctx, shown(s))
+                                    android.widget.Toast.makeText(ctx, "Saved as \"${saved.name}\" in My scenes", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            HoldMenu.Action("◈ Edit and tweak the layers", focusAfter = null) { Bg2.pristine(n)?.let { Bg2.preview = it; lastBrowsedScene = n }; onBuild() }))
+                    },
                     onPress = { n -> Bg2.pristine(n)?.let { onApply(if (Bg2.preview.name == it.name) Bg2.preview else it) } }
                 ) { n, c, m -> SceneIcon(Bg2.pristine(n), c, m) }
             }
@@ -261,10 +272,7 @@ private fun ScenePanel(scene: BgScene, first: FocusRequester, onToast: (String) 
     fun shortName(n: String) = n.removePrefix(CLASSIC_PREFIX).removePrefix(LINES_PREFIX)
     fun removeLast(g: Generator) {
         val l = scene.layers.lastOrNull { it.type == g.name } ?: return
-        val rest = scene.layers.filter { it.id != l.id }.map { o ->
-            o.let { if (it["maskBy"].toInt() == l.id) it.set("maskBy", -1f) else it }.let { if (it["warpBy"].toInt() == l.id) it.set("warpBy", -1f) else it }
-        }
-        Bg2.soloId = -1; Bg2.preview = scene.copy(layers = rest)
+        Bg2.soloId = -1; Bg2.preview = scene.withoutLayer(l.id)
         onToast("Removed ${shortName(g.name)}")
     }
     fun add(g: Generator) {
@@ -441,12 +449,7 @@ private fun NodeSettings(scene: BgScene, l: Layer, first: FocusRequester, edit: 
             item { Row_("↺ Reset this layer", false, id = "nd:reset", onFocus = {}) { edit(Layer(l.id, l.type, media = l.media)) } }
             item { Row_(if (confirmRemove) "🗑 OK again to remove" else "🗑 Remove this layer", confirmRemove, id = "nd:rm", onFocus = {}) {
                 if (!confirmRemove) confirmRemove = true
-                else {
-                    val rest = scene.layers.filter { it.id != l.id }.map { o ->
-                        o.let { if (it["maskBy"].toInt() == l.id) it.set("maskBy", -1f) else it }.let { if (it["warpBy"].toInt() == l.id) it.set("warpBy", -1f) else it }
-                    }
-                    Bg2.soloId = -1; onDeleted(); Bg2.preview = scene.copy(layers = rest)
-                }
+                else { Bg2.soloId = -1; onDeleted(); Bg2.preview = scene.withoutLayer(l.id) }
             } }
         }
     }
@@ -503,16 +506,36 @@ private fun StageLabels(tiles: Boolean = true) {
     }
 }
 
+/** A layer goes, and anything that was masked or warped by it stops using it. */
+private fun BgScene.withoutLayer(id: Int) = copy(layers = layers.filter { it.id != id }.map { o ->
+    o.let { if (it["maskBy"].toInt() == id) it.set("maskBy", -1f) else it }.let { if (it["warpBy"].toInt() == id) it.set("warpBy", -1f) else it }
+})
+
+private fun openLayerMenu(scene: BgScene, l: Layer, i: Int) {
+    val next = scene.layers.getOrNull(i + 1) ?: scene.layers.getOrNull(i - 1)
+    val solo = Bg2.soloId == l.id
+    HoldMenu.open("${i + 1} " + l.type.removePrefix(CLASSIC_PREFIX).removePrefix(LINES_PREFIX), buildList {
+        add(HoldMenu.Action("⚙ Settings", focusAfter = null) { Bg2.panelTop?.invoke() })
+        if (scene.layers.size > 1) add(HoldMenu.Action("↔ Move") { Bg2.movingNode = l.id })
+        add(HoldMenu.Action(if (l.on) "○ Turn off" else "● Turn on") {
+            Bg2.preview = scene.copy(layers = scene.layers.map { if (it.id == l.id) it.set("on", if (l.on) 0f else 1f) else it })
+        })
+        add(HoldMenu.Action(if (solo) "◉ Show the whole scene" else "◉ Show only this") { Bg2.soloId = if (solo) -1 else l.id })
+        if (scene.layers.size < 8) add(HoldMenu.Action("⧉ Duplicate") { Bg2.preview = scene.copy(layers = scene.layers + l.copy(id = scene.nextId)) })
+        add(HoldMenu.Action("🗑 Remove", confirm = true, focusAfter = next?.let { "ltile:${it.id}" }) { Bg2.soloId = -1; Bg2.preview = scene.withoutLayer(l.id) })
+    })
+}
+
 /**
  * A layer under the monitor. Left is the back layer. In the builder it's a live control:
- * ← → next layer · OK or ↑ = its settings · hold OK = pick up, then ← → move, OK = drop.
+ * ← → next layer · OK or ↑ = its settings · hold OK = its menu, whose Move then takes ← →, with OK to drop.
  */
 @Composable
 private fun LayerTile(scene: BgScene, l: Layer, i: Int, n: Int) {
     val x = Stage.tileX(i, n); val w = Stage.tileW(n); val h = Stage.tileH(n)
     val selected = Bg2.building && Bg2.focusNode == l.id
     var focused by remember { mutableStateOf(false) }
-    var held by remember { mutableStateOf(false) }
+    var tapping by remember { mutableStateOf(false) }   // only a press that began here and wasn't held opens the settings
     val solo = Bg2.soloId == l.id
     val moving = Bg2.movingNode == l.id
     // a held arrow stops at the last tile; a new press loops round
@@ -534,15 +557,15 @@ private fun LayerTile(scene: BgScene, l: Layer, i: Int, n: Int) {
                     if (down) when {
                         e.key == Key.DirectionLeft -> move(-1)
                         e.key == Key.DirectionRight -> move(1)
-                        ok && e.nativeKeyEvent.repeatCount == 0 && !held -> Bg2.movingNode = -1
+                        ok && e.nativeKeyEvent.repeatCount == 0 -> Bg2.movingNode = -1
                         e.key == Key.Back -> Bg2.movingNode = -1
                     }
-                    if (!down && ok) held = false
                     true
                 }
                 ok -> {
-                    if (down && e.nativeKeyEvent.repeatCount == 1) { held = true; Bg2.movingNode = l.id }
-                    if (!down) { if (held) held = false else Bg2.panelTop?.invoke() }
+                    if (down && e.nativeKeyEvent.repeatCount == 0) tapping = true
+                    if (down && e.nativeKeyEvent.repeatCount == 1) { tapping = false; openLayerMenu(scene, l, i) }
+                    if (!down && tapping) { tapping = false; Bg2.panelTop?.invoke() }
                     true
                 }
                 !down -> false

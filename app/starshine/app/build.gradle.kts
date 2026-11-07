@@ -30,8 +30,8 @@ android {
         applicationId = "com.starshine.launcher"
         minSdk = 26
         targetSdk = 34
-        versionCode = 56
-        versionName = "2.6.0"
+        versionCode = 57
+        versionName = "2.7.0"
         buildConfigField("String", "JELLYFIN", personal("jellyfin"))
         buildConfigField("String", "PRIVATE_DOMAIN", personal("privateDomain"))
         buildConfigField("String", "WEB_TILES", personal("webTiles"))

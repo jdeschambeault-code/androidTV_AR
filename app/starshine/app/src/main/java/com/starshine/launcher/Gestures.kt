@@ -85,7 +85,7 @@ object Gestures {
         code.startsWith("bg:") -> "Background: " + code.removePrefix("bg:").removePrefix("file:")
         code.startsWith("mood:") -> "Mood: " + code.removePrefix("mood:")
         code == "sound:stop" -> "Stop sound"
-        code == "ui:quick" -> "Quick panel"
+        code == "ui:quick" -> "Quick edit"
         code == "ui:home" -> "Home"
         code == "ui:voice" -> "Voice command"
         code == "ui:apps" -> "Open apps"

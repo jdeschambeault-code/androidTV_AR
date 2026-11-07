@@ -125,7 +125,7 @@ class WebActivity : ComponentActivity() {
         // a stream's master list is what a player needs; a clip found later on the page doesn't replace it
         if (found?.let { manifest(it) } == true && !manifest(url)) return
         found = url
-        runOnUiThread { showBanner("▶ Video found. Press Menu to play it in VLC") }
+        runOnUiThread { showBanner("▶ Video found: ≡ menu → Play in VLC") }
     }
     private fun showBanner(s: String) { banner.text = s; banner.visibility = View.VISIBLE }
     private fun toVlc(url: String) {
@@ -485,12 +485,17 @@ class WebActivity : ComponentActivity() {
     private fun showSaved(title: String, list: PageList, focus: Int = 0) {
         val rows = list.pages.mapIndexed { i, s ->
             val name = s.title.ifEmpty { Uri.parse(s.url).host ?: s.url }
-            BrowserRow(name + "\n" + s.url, hold = { list.remove(s.url); refreshBar(); showSaved(title, list, i) }) {
+            BrowserRow(name + "\n" + s.url, hold = {
+                showPanel(name, listOf(
+                    BrowserRow("▶ Open") { closePanel(); open(s.url) },
+                    BrowserRow("🗑 Remove") { list.remove(s.url); refreshBar(); showSaved(title, list, i) },
+                    BrowserRow("Cancel") { showSaved(title, list, i) }))
+            }) {
                 closePanel(); open(s.url)
             }
         }
         if (rows.isEmpty()) showPanel(title, listOf(BrowserRow(if (list === bookmarks) "Nothing saved yet. Press ☆ on a page to save it." else "Nothing here yet.") { closePanel() }))
-        else showPanel("$title · hold OK to remove", rows, focus)
+        else showPanel("$title · hold OK for options", rows, focus)
     }
 
     /** Downloads this browser started. The list shows only this app's own, and opening a finished one is Android's choice of app. */

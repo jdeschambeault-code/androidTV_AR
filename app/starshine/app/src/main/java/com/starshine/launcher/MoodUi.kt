@@ -343,6 +343,27 @@ private fun LayerSettings(stack: AudioStack, l: AudioLayer, first: FocusRequeste
     }
 }
 
+private fun openAudioLayerMenu(ctx: android.content.Context, stack: AudioStack, a: AudioLayer, i: Int) {
+    fun put(n: AudioStack) { Med.draft = n; if (Sound.current == n.name) Sound.playStack(ctx, heard(n), 0.3f) }
+    val next = stack.layers.getOrNull(i + 1) ?: stack.layers.getOrNull(i - 1)
+    val solo = Med.soloLayer == a.id
+    HoldMenu.open("${i + 1} " + a.kind, buildList {
+        add(HoldMenu.Action("⚙ Settings", focusAfter = null) { Med.panelTop?.invoke() })
+        if (stack.layers.size > 1) add(HoldMenu.Action("↔ Move") { Med.movingLayer = a.id })
+        add(HoldMenu.Action(if (a.on) "○ Turn off" else "● Turn on") {
+            put(stack.copy(layers = stack.layers.map { if (it.id == a.id) it.set("on", if (a.on) 0f else 1f) else it }))
+        })
+        add(HoldMenu.Action(if (solo) "◉ Hear the whole mood" else "◉ Hear only this") {
+            Med.soloLayer = if (solo) -1 else a.id
+            if (Sound.current == stack.name) Sound.playStack(ctx, heard(stack), 0.3f)
+        })
+        add(HoldMenu.Action("⧉ Duplicate") { put(stack.copy(layers = stack.layers + a.copy(id = stack.nextId))) })
+        add(HoldMenu.Action("🗑 Remove", confirm = true, focusAfter = next?.let { "mtile:${it.id}" }) {
+            Med.soloLayer = -1; put(stack.copy(layers = stack.layers.filter { it.id != a.id }))
+        })
+    })
+}
+
 /** The mood's layers under the preview, left to right. In the builder they're live controls, like visual layers. */
 @Composable
 fun MoodStrip() {
@@ -360,7 +381,7 @@ fun MoodStrip() {
                 val w = (Stage.W - 4f * (slots - 1)) / slots
                 val focusedHere = Med.moodBuilding && Med.focusLayer == a.id
                 var focused by remember { mutableStateOf(false) }
-                var held by remember { mutableStateOf(false) }
+                var tapping by remember { mutableStateOf(false) }   // only a press that began here and wasn't held opens the settings
                 val solo = Med.soloLayer == a.id; val moving = Med.movingLayer == a.id
                 fun neighbour(d: Int, repeat: Int) { val n = stack.layers.size; if ((i + d) in 0 until n || repeat == 0) FocusMem.restore("mtile:${stack.layers[(i + d + n) % n].id}") }
                 fun move(d: Int) { val j = i + d; if (j in stack.layers.indices) Med.draft = stack.copy(layers = stack.layers.toMutableList().apply { add(j, removeAt(i)) }) }
@@ -376,17 +397,15 @@ fun MoodStrip() {
                             Med.movingLayer == a.id -> {
                                 if (down) when {
                                     e.key == Key.DirectionLeft -> move(-1); e.key == Key.DirectionRight -> move(1)
-                                    ok && e.nativeKeyEvent.repeatCount == 0 && !held -> Med.movingLayer = -1
+                                    ok && e.nativeKeyEvent.repeatCount == 0 -> Med.movingLayer = -1
                                     e.key == Key.Back -> Med.movingLayer = -1
                                 }
-                                if (!down && ok) held = false
                                 true
                             }
                             ok -> {
-                                if (down && e.nativeKeyEvent.repeatCount == 1) { held = true; Med.movingLayer = a.id }
-                                if (!down) {
-                                    if (held) held = false else Med.panelTop?.invoke()
-                                }
+                                if (down && e.nativeKeyEvent.repeatCount == 0) tapping = true
+                                if (down && e.nativeKeyEvent.repeatCount == 1) { tapping = false; openAudioLayerMenu(ctx, stack, a, i) }
+                                if (!down && tapping) { tapping = false; Med.panelTop?.invoke() }
                                 true
                             }
                             !down -> false

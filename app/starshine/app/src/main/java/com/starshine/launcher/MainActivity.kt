@@ -369,7 +369,7 @@ object FocusMem {
     private val spots = HashMap<String, String>()
     fun note(id: String) {
         val top = inTop(id) || id.startsWith("sub:")
-        if (!top && !modalOpen) spots[tabName] = id
+        if (!top && !modalOpen && !id.startsWith("row:hm:")) spots[tabName] = id
     }
     private fun inTop(id: String?) = id != null && (id == "clock" || id.startsWith("tab:") || id.startsWith("pill:"))
     /** A tab's icon that isn't the open tab: its arrows up and down don't reach into what's open. */
@@ -678,6 +678,7 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
         }
     }
     androidx.compose.runtime.SideEffect { FocusMem.tabName = tab.name; FocusMem.modalOpen = top != null }
+    LaunchedEffect(tab, top) { HoldMenu.dismiss() }
     LaunchedEffect(quickRequest) { if (quickRequest > 0 && top != "quick") openModal("quick") }
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { delay(2600); toast = "" } }
     LaunchedEffect(sleepAt) {
@@ -804,6 +805,7 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
                     }
                 } else if (ev.type == PointerEventType.Release && downAt != 0L) {
                     ev.changes.forEach { it.consume() }; hold?.cancel()
+                    FocusMem.swallowOk = false   // this release skips the activity's key filter, which would otherwise eat the next remote press
                     view.dispatchKeyEvent(android.view.KeyEvent(downAt, SystemClock.uptimeMillis(), android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_CENTER, 0)); downAt = 0L
                 }
             }
@@ -984,7 +986,7 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
                 }
             }
             "help" -> HelpViewer { closeModal() }
-            "apps" -> ModalFrame("Open apps", "OK = switch · hold OK = close app · Back = close", width = 380, alignTop = true) { first ->
+            "apps" -> ModalFrame("Open apps", "OK = switch · hold OK = options · Back = close", width = 380, alignTop = true) { first ->
                 OpenAppsList(first, apps, browser, prefs.jellyfin, onDone = { closeModal() }, onToast = { toast = it })
             }
             "add" -> AddPicker(
@@ -1044,6 +1046,8 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
                 }
             }
         }
+
+        HoldMenu.spec?.let { HoldMenuBox(it) }
 
         } }  // transform box + BoxWithConstraints
 
@@ -1258,7 +1262,7 @@ fun SettingsCategory(
             }
             "Dock" -> {
                 item { Box(f) { Row_("Reset dock to Google TV favorites order", false, onFocus = {}) { onResetDock() } } }
-                item { Text("On Home: hold OK on a tile to move (← →) or remove (↓). The + tile adds apps.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+                item { Text("On Home: hold OK on a tile to open, move or remove it. The + tile adds apps.", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
             }
             "System" -> {
                 item { Box(f) { HomeSwitch() } }
@@ -1473,16 +1477,16 @@ fun OpenAppsList(first: FocusRequester, apps: List<AppEntry>, browser: String, j
     }
     val granted = remember { SystemInfo.hasUsageAccess(ctx) }
     var recent by remember { mutableStateOf(SystemInfo.recentApps(ctx, apps.map { it.id }.toSet()).filter { it != JELLYFIN_PKG }.mapNotNull { id -> apps.find { it.id == id } }) }
-    var longFired by remember { mutableStateOf(false) }
     val jellyfin = apps.find { it.id == JELLYFIN_PKG }
     fun holdToClose(a: AppEntry): (KeyEvent) -> Boolean = { e ->
-        when {
-            !e.isOk() -> false
-            e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; SystemInfo.close(ctx, a.id); recent = recent - a; onToast("Closed ${a.label}"); true }
-            e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
-            e.type == KeyEventType.KeyUp && longFired -> { longFired = false; true }
-            else -> false
-        }
+        if (e.isOk() && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1) {
+            val i = recent.indexOf(a)
+            val next = if (i < 0) HoldMenu.SAME else (recent.getOrNull(i + 1) ?: recent.getOrNull(i - 1))?.let { "open:${it.id}" } ?: "open:closeall"
+            HoldMenu.open(a.label, listOf(
+                HoldMenu.Action("▶ Switch to it", focusAfter = null) { launch(ctx, a.id, browser); onDone() },
+                HoldMenu.Action("✕ Close app", focusAfter = next) { SystemInfo.close(ctx, a.id); recent = recent - a; onToast("Closed ${a.label}") }))
+            true
+        } else false
     }
     LoopColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (jellyfin != null && jellyfinUrl.isNotEmpty()) item(key = "jf") {
@@ -1493,7 +1497,7 @@ fun OpenAppsList(first: FocusRequester, apps: List<AppEntry>, browser: String, j
             }
         }
         items(recent, key = { it.id }) { a ->
-            Pill(CYAN, a.label, "${a.label} · OK switch · hold OK close", onClick = { launch(ctx, a.id, browser); onDone() }, onKey = holdToClose(a), id = "open:${a.id}")
+            Pill(CYAN, a.label, "${a.label} · OK switch · hold OK options", onClick = { launch(ctx, a.id, browser); onDone() }, onKey = holdToClose(a), id = "open:${a.id}")
         }
         if (!granted) item(key = "hint") { Pill(AMBER, "usage access off", "Run Build & Install Starshine once", onClick = {}, id = "open:hint") }
         item(key = "closeall") {
@@ -1788,7 +1792,6 @@ fun Dock(
     onRemove: (String) -> Unit, onEndMove: () -> Unit, onAdd: () -> Unit
 ) {
     val requesters = remember { HashMap<String, FocusRequester>() }
-    var longFired by remember { mutableStateOf(false) }
     val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
     val rowScope = rememberCoroutineScope()
     fun loopTo(index: Int, id: String) { rowScope.launch { rowState.scrollToItem(index); FocusMem.restoreSoon(id) } }
@@ -1814,16 +1817,18 @@ fun Dock(
                             e.key == Key.DirectionLeft -> onMove(a.id, -1)
                             e.key == Key.DirectionRight -> onMove(a.id, +1)
                             e.key == Key.DirectionDown -> onRemove(a.id)
-                            e.isOk() && e.nativeKeyEvent.repeatCount == 0 && !longFired -> onEndMove()
+                            e.isOk() && e.nativeKeyEvent.repeatCount == 0 -> onEndMove()
                         }
-                        if (e.type == KeyEventType.KeyUp && e.isOk()) longFired = false
                         true
-                    } else when {
-                        !e.isOk() -> false
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; onStartMove(a.id); true }
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
-                        else -> false
-                    }
+                    } else if (moving == null && e.isOk() && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1) {
+                        val i = items.indexOf(a)
+                        val next = (items.getOrNull(i + 1) ?: items.getOrNull(i - 1))?.id ?: "+add"
+                        HoldMenu.open(a.label, listOf(
+                            HoldMenu.Action("▶ Open") { onLaunch(a) },
+                            HoldMenu.Action("↔ Move") { onStartMove(a.id) },
+                            HoldMenu.Action("✕ Remove from dock", focusAfter = "tile:$next") { onRemove(a.id) }))
+                        true
+                    } else false
                 }) { if (moving == null) onLaunch(a) }
             }
             item(key = "+add") { Tile(null, width = tileWidth) { if (moving == null) onAdd() } }
@@ -1890,19 +1895,17 @@ fun Chip(text: String, id: String = text, onClick: () -> Unit) {
 
 @Composable
 fun AppsGrid(apps: List<AppEntry>, dock: List<String>, onLaunch: (AppEntry) -> Unit, onToggle: (AppEntry) -> Unit) {
-    var longFired by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(horizontal = 40.dp)) {
-        Text("OK = open  ·  hold OK = add to / remove from dock  (● = in dock)", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(bottom = 10.dp))
+        Text("OK = open  ·  hold OK = options  (● = in dock)", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(bottom = 10.dp))
         LazyVerticalGrid(GridCells.Adaptive(150.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(apps, key = { it.id }) { a ->
                 Tile(a, label = a.label, badge = a.id in dock, onKey = { e ->
-                    when {
-                        !e.isOk() -> false
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1 -> { longFired = true; onToggle(a); true }
-                        e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount > 1 -> true
-                        e.type == KeyEventType.KeyUp && longFired -> { longFired = false; true }
-                        else -> false
-                    }
+                    if (e.isOk() && e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 1) {
+                        HoldMenu.open(a.label, listOf(
+                            HoldMenu.Action("▶ Open") { onLaunch(a) },
+                            HoldMenu.Action(if (a.id in dock) "✕ Remove from dock" else "＋ Add to dock") { onToggle(a) }))
+                        true
+                    } else false
                 }) { onLaunch(a) }
             }
         }
@@ -2184,7 +2187,7 @@ fun GestureList(first: FocusRequester, gestures: Map<String, String>, describe: 
             }
         }
         item { Text("How to draw: hold the M5's right button and move it in a shape, then let go (a short right click is still Back). " +
-            "No right button? Quick panel → ✍ Draw gesture, move, then click. Shapes are read as strokes in 8 directions: → ← ↑ ↓ ↗ ↘ ↙ ↖ and combinations such as ↓→ or ↗↘.",
+            "No right button? Quick edit → ✍ Draw gesture, move, then click. Shapes are read as strokes in 8 directions: → ← ↑ ↓ ↗ ↘ ↙ ↖ and combinations such as ↓→ or ↗↘.",
             color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
     }
 }
@@ -2196,7 +2199,7 @@ fun GestureEditor(first: FocusRequester, current: String, choices: List<String>,
     fun step(d: Int) { val i = choices.indexOf(code).coerceAtLeast(0); code = choices[(i + d + choices.size) % choices.size]; onSet(code) }
     LoopColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         item { Box(Modifier.focusRequester(first)) { Adjust("Action", describe(code), { step(-1) }) { step(+1) } } }
-        item { Text("Choose: Home, Quick panel, Open apps, Voice, Screensaver, next/previous background, stop sound, any mood or frequency, any background, any app. Hold ← → to scroll fast.",
+        item { Text("Choose: Home, Quick edit, Open apps, Voice, Screensaver, next/previous background, stop sound, any mood or frequency, any background, any app. Hold ← → to scroll fast.",
             color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
         item { Row_("🗑 Delete this gesture", false, id = "g:delete", onFocus = {}) { onDelete() } }
     }

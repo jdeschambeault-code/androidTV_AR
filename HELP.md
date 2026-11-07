@@ -12,9 +12,9 @@ This help is the same file on GitHub and inside the app (Quick edit → About & 
 |---|---|
 | Arrows | Move the selection. Hold half a second to keep moving. At the end of a menu, a new press loops to the other end |
 | OK | Open or engage the selected item |
-| Hold OK | Extra actions, such as moving a dock tile |
+| Hold OK | A menu of what you can do with the selected item |
 | Back | One level up: close what you opened, then go to the current tab in the top menu, then to Home |
-| Menu | Quick edit |
+| Menu, if your remote has one | Quick edit |
 | Mic or search | Voice command |
 
 On a setting, OK starts editing it (amber), ← → change the value, and ↑ ↓ go straight to the next setting.
@@ -25,7 +25,7 @@ On a setting, OK starts editing it (amber), ← → change the value, and ↑ �
 
 The selection starts on the clock in the top menu, so ← → move through Home, Apps, Backgrounds, Meditation and the rest. Press ↓ to go down to the dock, which holds your apps.
 
-- Hold OK on a tile, then ← → to move it or ↓ to remove it.
+- Hold OK on a tile to open, move or remove it. While moving, ← → move it, ↓ removes it and OK finishes.
 - The **+** tile adds apps and web shortcuts.
 - The dock and top menu slide away when idle; any press brings them back.
 - If you use Jellyfin, a Continue watching row can appear (Settings → Web & Jellyfin).
@@ -65,7 +65,7 @@ On a layer tile:
 |---|---|
 | ← → | Next layer to the left or right |
 | OK or ↑ | Go to its settings |
-| Hold OK | Pick it up: ← → move it, OK drops it, the same as a dock app |
+| Hold OK | A menu: settings, move, turn on or off, show only this, duplicate, remove. In Move, ← → move it and OK drops it |
 | Back | Scene options: apply, full-screen preview, add a layer, save, reset |
 
 **＋ Add layer** shows every type as an icon, four to a row, in folders that open with OK. The panel's header names the selected icon. An icon lights up green once that layer is in the scene. OK on a green icon offers **Remove it** (selected first, so it's a quick undo), **Add another** or **Cancel**. Audio moods work the same way, with a small wave as each icon.
@@ -84,7 +84,7 @@ Your work is saved temporarily as you build, one scene and one mood at a time. L
 
 Scenes and moods show as icons, four to a row, in folders you can close. The line at the top names the selected one, and the preview sits beside the menu at whatever size fits. The first option is always **✓ Apply** (or **▶ Play** for moods), and ↓ from the Backgrounds or Moods tab lands on it. On an icon, ← → and ↑ ↓ move, and OK applies or plays it.
 
-Hold OK on a scene to apply it to the background, save it to My scenes (as your own copy), edit it, rename it or delete it. Hold OK on a mood to edit, rename or delete it. On a classic background, hold OK opens the builder. Renaming one of your scenes or any mood updates the journeys that use it. Renaming a built-in scene makes your own copy.
+Hold OK on a scene to apply it to the background, save it to My scenes (as your own copy), edit it, rename it or delete it. Hold OK on a mood to edit, rename or delete it. Hold OK on a classic background to apply it, save it to My scenes or edit it. Renaming one of your scenes or any mood updates the journeys that use it. Renaming a built-in scene makes your own copy.
 
 The categories:
 
@@ -148,7 +148,7 @@ A journey is a timeline of scenes and sound that blends from one step to the nex
 
 The **Moods** sub-tab builds a sound from layers: Tone, Noise, Didgeridoo, Singing bowl, Tibetan bells, Xylophone, Chimes, Temple gong, Tanpura, Handpan, Kalimba, Frame drum, Rain and Ocean. All are synthesized live, inspired by those instruments rather than recorded from them. Ready-made layered moods are in the **Meditative** and **World-inspired** folders, to listen to or rebuild. Browsing shows a mood's layers under the preview, each as a tile with a small wave and its name. OK plays a mood, and → opens the builder.
 
-On a layer tile: ← → next layer, OK or ↑ goes to its settings, hold OK picks it up to move, and Back returns. Settings work as for scenes, with **Hear: Whole mood / Only this** instead of Preview. On Carrier and Beat, OK changes how far each arrow press moves the value. **＋ Add layer** works the same as for scenes: icons with the same on/off choice. Save with **Save as new mood** or **Save changes**.
+On a layer tile: ← → next layer, OK or ↑ goes to its settings, hold OK opens its menu (settings, move, on or off, hear only this, duplicate, remove), and Back returns. Settings work as for scenes, with **Hear: Whole mood / Only this** instead of Preview. On Carrier and Beat, OK changes how far each arrow press moves the value. **＋ Add layer** works the same as for scenes: icons with the same on/off choice. Save with **Save as new mood** or **Save changes**.
 
 Tone layers can change slowly:
 
@@ -161,7 +161,7 @@ The other direction works through a layer's React settings: the **Tone beat** an
 
 ## Quick edit
 
-Open it with the clock, the Menu key, or a long press on Home in any app.
+Open it with the clock, a long press on Home in any app, or the Menu button if your remote has one.
 
 Quick edit works like a phone's control center:
 
@@ -209,7 +209,7 @@ Videos play in **VLC** when it's installed, and Starshine has a simple built-in 
 **Starshine browser** is in Apps, in the Quick edit (**🌐 Web browser**) and in Settings → Web & Jellyfin. Another browser can send it a page through Share or "open with".
 
 - **Top bar:** back, forward, reload, the address (OK to type an address or search), ☆ to save the page, and ≡ for the menu. On the remote, press up from the top of the page to reach it.
-- **≡ menu:** bookmarks, history, downloads, desktop site, text size, the VLC hand-off, and clearing your browsing data. In bookmarks and history, hold OK to remove an entry.
+- **≡ menu:** bookmarks, history, downloads, desktop site, text size, the VLC hand-off, and clearing your browsing data. In bookmarks and history, hold OK on an entry to open or remove it.
 - **Keys:** **Menu** plays a video found on the page in VLC, or opens the menu when there is none. Hold **Menu** to type an address. **Back** closes the menu, leaves full screen or the top bar, then goes to the previous page.
 - **Downloads** ask first and go to your Downloads folder. A video link also offers **Play in VLC**.
 - **Privacy:** history and bookmarks stay on this device and are left out of Android backups. Sites can't use the camera, microphone or location. A site that wants protected video asks once per visit.

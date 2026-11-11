@@ -41,6 +41,8 @@ module.exports = {
         `${adb} shell appops set ${PKG} GET_USAGE_STATS allow`,
         `${adb} shell appops set ${PKG} WRITE_SETTINGS allow`,
         `${adb} shell cmd notification allow_listener ${PKG}/${PKG}.MediaListener`,
+        // compile ahead of time, so sound and menus run at full speed from the first launch
+        `${adb} shell cmd package compile -m speed -f ${PKG}`,
         // append the long-press-Home service to any existing accessibility services (no-op if already there)
         `${adb} shell "cur=$(settings get secure enabled_accessibility_services); case $cur in *KeyService*) ;; null|'') settings put secure enabled_accessibility_services ${KEYSVC} ;; *) settings put secure enabled_accessibility_services $cur:${KEYSVC} ;; esac; settings put secure accessibility_enabled 1; settings get secure enabled_accessibility_services"`
       ]

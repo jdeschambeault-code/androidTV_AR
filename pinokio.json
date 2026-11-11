@@ -1,5 +1,8 @@
 {
   "title": "Rokid TV Toolkit",
-  "description": "Mirror, sideload, diagnose and redesign the Rokid Station (Android TV 12) for Rokid AR glasses — from your PC",
-  "icon": "icon.svg"
+  "description": "Rokid TV Toolkit to suppour AR users that want an overall great AR Experience in limited glasses. It is pair with a M5 universal remote for point and shoot and gyro support. Drode support is also possible\r\n",
+  "icon": "icon.png",
+  "plugin": {
+    "menu": []
+  }
 }

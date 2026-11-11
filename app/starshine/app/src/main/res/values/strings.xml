@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="keyservice_desc">Starshine: long-press Home in any app to open the Starshine quick panel. Short presses are not affected.</string>
+    <string name="keyservice_desc">Starshine: long-press Home in any app to open the Starshine quick panel. Short presses are not affected. On a long-press it also looks for the web address of the page on screen, so the quick panel can open that page in Starshine\'s browser. It reads nothing at other times and keeps the address only until the panel closes.</string>
 </resources>

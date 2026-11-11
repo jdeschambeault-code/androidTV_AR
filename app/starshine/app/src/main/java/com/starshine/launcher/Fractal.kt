@@ -80,17 +80,71 @@ object Fractal {
 
     /** Layer settings of the fractal, sharing the layer's value table. */
     private fun num(v: Float) = String.format(java.util.Locale.US, "%.4f", v)
+    private fun zoomFmt(z: Float): String { val k = Math.pow(2.0, z.toDouble()); return String.format(java.util.Locale.US, if (k < 10) "×%.2f" else "×%.0f", k) }
     val F0X = BgParams.P("f0x", "Start X", -0.5f, 0.05f, -3f, 3f, ::num)
     val F0Y = BgParams.P("f0y", "Start Y", 0f, 0.05f, -3f, 3f, ::num)
-    val F0Z = BgParams.P("f0z", "Start zoom", 0f, 0.25f, -2f, 16f, { String.format(java.util.Locale.US, "×%.0f", Math.pow(2.0, it.toDouble())) })
+    val F0Z = BgParams.P("f0z", "Start zoom", 0f, 0.25f, -2f, 16f, ::zoomFmt)
     val F1X = BgParams.P("f1x", "Lead X", -0.7436447f, 0.05f, -3f, 3f, ::num)
     val F1Y = BgParams.P("f1y", "Lead Y", 0.1318252f, 0.05f, -3f, 3f, ::num)
-    val F1Z = BgParams.P("f1z", "Lead zoom", 12f, 0.25f, -2f, 16f, { String.format(java.util.Locale.US, "×%.0f", Math.pow(2.0, it.toDouble())) })
+    val F1Z = BgParams.P("f1z", "Lead zoom", 12f, 0.25f, -2f, 16f, ::zoomFmt)
     val TRIP = BgParams.P("trip", "Trip time", 60f, 5f, 5f, 900f, { "${Math.round(it)} s" })
     val HOLD = BgParams.P("fhold", "Stay at each end", 0.15f, 0.05f, 0f, 0.8f)
     val CDENS = BgParams.P("cdens", "Color bands", 0.35f, 0.05f, 0.02f, 3f)
     val CCYCLE = BgParams.P("ccycle", "Color flow", 0.05f, 0.01f, -1f, 1f, { String.format(java.util.Locale.US, "%.2f", it) })
-    val PARAMS = listOf(F0X, F0Y, F0Z, F1X, F1Y, F1Z, TRIP, HOLD, CDENS, CCYCLE)
+    /** 3D views raise each point of the set by how long it took to escape: a real displaced mesh, turned by the layer's rotation. */
+    val VIEWS = listOf("2D (flat)", "3D terrain", "3D wire mesh", "3D point cloud")
+    val HEIGHT = BgParams.P("fhgt", "Height", 0.7f, 0.05f, 0f, 2.5f)
+    val PARAMS = listOf(F0X, F0Y, F0Z, F1X, F1Y, F1Z, TRIP, HOLD, CDENS, CCYCLE, HEIGHT)
+
+    /** The 3D mesh: every vertex works out the fractal at its own point and is lifted by it. */
+    const val MESH_VS = """
+attribute vec2 P;
+uniform vec4 SETF; uniform vec2 JC; uniform vec3 CAM; uniform vec3 PAL[5]; uniform vec2 CB;
+uniform mat3 ROTM; uniform float SCL; uniform float ASP; uniform float HGT; uniform float MAXI; uniform vec2 OFF; uniform float T; uniform float HUE; uniform float PTS;
+varying vec3 vC; varying float vZ;
+vec2 cmul(vec2 a, vec2 b) { return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+vec2 cpow(vec2 z, int p) { vec2 r = z; for (int k = 1; k < 8; k++) { if (k >= p) break; r = cmul(r, z); } return r; }
+vec3 pal(float t) {
+  t = fract(t) * 5.0;
+  if (t < 1.0) return mix(PAL[0], PAL[1], t);
+  if (t < 2.0) return mix(PAL[1], PAL[2], t - 1.0);
+  if (t < 3.0) return mix(PAL[2], PAL[3], t - 2.0);
+  if (t < 4.0) return mix(PAL[3], PAL[4], t - 3.0);
+  return mix(PAL[4], PAL[0], t - 4.0);
+}
+void main() {
+  vec2 uv = vec2(P.x * ASP, P.y);
+  vec2 c = CAM.xy + uv * (1.5 / exp2(CAM.z));
+  int f = int(SETF.x + 0.5); int p = int(SETF.y + 0.5); bool julia = SETF.z > 0.5;
+  vec2 z = julia ? c : vec2(0.0); vec2 k = julia ? JC : c; vec2 prev = vec2(0.0);
+  int maxi = int(MAXI);
+  float it = 0.0; float esc = 0.0;
+  for (int i = 0; i < 200; i++) {
+    if (i >= maxi) break;
+    vec2 w = z;
+    if (f == 1) w = abs(z); else if (f == 2) w = vec2(z.x, -z.y); else if (f == 5) w = vec2(z.x, -abs(z.y));
+    vec2 n = cpow(w, p);
+    if (f == 3) n.x = abs(n.x); else if (f == 4) n = abs(n);
+    if (f == 6) { vec2 nz = n + vec2(k.x, 0.0) + k.y * prev; prev = z; z = nz; } else z = n + k;
+    if (dot(z, z) > 256.0) { esc = 1.0; break; }
+    it += 1.0;
+  }
+  float h; vec3 col;
+  if (esc > 0.5) {
+    float mu = it + 1.0 - log(log(max(length(z), 1.0001))) / log(float(p));
+    h = sqrt(clamp(mu / MAXI, 0.0, 1.0));
+    col = pal(mu * CB.x * 0.1 + T * CB.y * 0.1 + HUE);
+  } else { h = 1.0; col = PAL[0] * 0.4 + 0.05; }
+  vec3 r = ROTM * (vec3(uv * 0.85, (h - 0.5) * HGT) * SCL);
+  float w = max(1.0 - r.z * 0.35, 0.1);
+  vec2 xy = r.xy / w + OFF;
+  gl_Position = vec4(xy.x / ASP, xy.y, clamp(-r.z * 0.3, -0.99, 0.99), 1.0);
+  gl_PointSize = PTS;
+  vC = col; vZ = r.z;
+}"""
+    const val MESH_FS = """
+precision mediump float; varying vec3 vC; varying float vZ; uniform float GLOW; uniform float DIMS;
+void main() { gl_FragColor = vec4(vC * GLOW * DIMS * clamp(0.65 + vZ * 0.5, 0.25, 1.25), 1.0); }"""
 
     /** Points are moved in steps that shrink as you zoom, so the arrows stay useful deep inside. */
     fun stepAt(zoom: Float) = (0.1f / Math.pow(2.0, zoom.toDouble()).toFloat()).coerceAtLeast(1e-6f)

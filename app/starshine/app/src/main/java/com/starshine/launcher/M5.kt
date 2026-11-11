@@ -21,7 +21,7 @@ object M5 {
     var dwellMs by mutableIntStateOf(280)
     var deadzone by mutableFloatStateOf(14f)
     var clickAsOk by mutableStateOf(true)
-    var editLock by mutableStateOf(true)
+    var editLock by mutableStateOf(false)
     var rightClick by mutableStateOf("Back")        // Back · Quick panel · Voice · Open apps · Nothing
     var menuKey by mutableStateOf("Quick panel")    // Quick panel · Voice · Open apps
     val ACTIONS_RIGHT = listOf("Back", "Quick panel", "Voice", "Open apps", "Nothing")
@@ -49,13 +49,13 @@ object M5 {
     fun load(ctx: Context) {
         val p = sp(ctx)
         hoverSelect = p.getBoolean("m5hover2", false); dwellMs = p.getInt("m5dwell", 280); deadzone = p.getFloat("m5dead", 14f)
-        clickAsOk = p.getBoolean("m5click", true); editLock = p.getBoolean("m5lock", true)
+        clickAsOk = p.getBoolean("m5click", true); editLock = p.getBoolean("m5lock2", false)
         rightClick = p.getString("m5right", "Back")!!; menuKey = p.getString("m5menu", "Quick panel")!!
     }
 
     fun save(ctx: Context) {
         sp(ctx).edit().putBoolean("m5hover2", hoverSelect).putInt("m5dwell", dwellMs).putFloat("m5dead", deadzone)
-            .putBoolean("m5click", clickAsOk).putBoolean("m5lock", editLock).putString("m5right", rightClick).putString("m5menu", menuKey).apply()
+            .putBoolean("m5click", clickAsOk).putBoolean("m5lock2", editLock).putString("m5right", rightClick).putString("m5menu", menuKey).apply()
     }
 
     /** System cursor speed (-7..7). Reading/writing a private system setting may be refused on Android 12; then use the PC toolkit. */

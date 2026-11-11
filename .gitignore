@@ -29,3 +29,5 @@ venv
 *.jks
 /CAMPAIGN.md
 *.pem
+/tmp_todo.md
+nav-test-report.md

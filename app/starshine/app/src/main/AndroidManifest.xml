@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <!-- Quick edit: the brightness slider -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        xmlns:tools="http://schemas.android.com/tools" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Bg sound reaction reads the output mix through android.media.audiofx.Visualizer -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -49,6 +52,7 @@
         android:theme="@style/Theme.Starshine">
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Starshine.Launch"
             android:exported="true"
             android:launchMode="singleTask"
             android:stateNotNeeded="true"
@@ -65,10 +69,37 @@
         </activity>
 
         <activity
-            android:name=".WebActivity"
+            android:name=".PlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.Starshine"
             android:configChanges="keyboard|keyboardHidden|navigation|screenSize|smallestScreenSize|screenLayout|orientation|uiMode" />
+
+        <activity
+            android:name=".BlackoutActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Starshine" />
+
+        <activity
+            android:name=".WebActivity"
+            android:exported="true"
+            android:label="Starshine browser"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Starshine"
+            android:configChanges="keyboard|keyboardHidden|navigation|screenSize|smallestScreenSize|screenLayout|orientation|uiMode" >
+            <!-- other browsers can pass a page here with "open with" or Share -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
 
         <!-- lets VLC and other apps open files chosen in the file explorer -->
         <provider

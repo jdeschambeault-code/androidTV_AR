@@ -4,4 +4,8 @@
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowShowWallpaper">false</item>
     </style>
+    <!-- The logo the system shows while the app is loading. -->
+    <style name="Theme.Starshine.Launch">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
 </resources>

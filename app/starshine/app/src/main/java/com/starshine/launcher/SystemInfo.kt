@@ -21,13 +21,23 @@ object SystemInfo {
         return Ram(mi.availMem / 1_048_576, mi.totalMem / 1_048_576)
     }
 
-    /** Kill background processes of every launchable app (except Starshine). Returns MB freed. */
-    fun boost(ctx: Context, packages: List<String>): Long {
-        val before = ram(ctx).availMb
+    private fun swapFreeMb(): Long = runCatching {
+        java.io.File("/proc/meminfo").readLines().first { it.startsWith("SwapFree") }.filter { it.isDigit() }.toLong() / 1024
+    }.getOrDefault(0L)
+
+    data class Cleaned(val ramMb: Long, val swapMb: Long) { val text get() = "Freed $ramMb MB of RAM and $swapMb MB of swap" }
+
+    /**
+     * Asks Android to close the background processes of every launchable app (except Starshine). Apps can't be force-stopped
+     * from here, so some stay or restart. Memory is released gradually, so call this off the main thread: it waits before measuring.
+     */
+    fun boost(ctx: Context, packages: List<String>): Cleaned {
+        val before = ram(ctx).availMb; val swapBefore = swapFreeMb()
         val am = ctx.getSystemService(ActivityManager::class.java)
         packages.filter { it != ctx.packageName && !it.startsWith("@") && !it.startsWith("web:") }
             .forEach { runCatching { am.killBackgroundProcesses(it) } }
-        return (ram(ctx).availMb - before).coerceAtLeast(0)
+        Thread.sleep(2000)
+        return Cleaned((ram(ctx).availMb - before).coerceAtLeast(0), (swapFreeMb() - swapBefore).coerceAtLeast(0))
     }
 
     fun close(ctx: Context, pkg: String) = runCatching { ctx.getSystemService(ActivityManager::class.java).killBackgroundProcesses(pkg) }
@@ -63,6 +73,18 @@ object SystemInfo {
     fun volume(ctx: Context, direction: Int) {
         val am = ctx.getSystemService(AudioManager::class.java)
         am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+    }
+
+    fun volumeMax(ctx: Context) = ctx.getSystemService(AudioManager::class.java).getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    fun volumeNow(ctx: Context) = ctx.getSystemService(AudioManager::class.java).getStreamVolume(AudioManager.STREAM_MUSIC)
+    fun setVolume(ctx: Context, v: Int) = ctx.getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_MUSIC, v, 0)
+
+    /** The screen brightness, 0-255. Some TV boxes accept the setting without it changing the picture. */
+    fun brightness(ctx: Context) = runCatching { android.provider.Settings.System.getInt(ctx.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) }.getOrDefault(128)
+    /** False when Android hasn't given the permission to change it. */
+    fun setBrightness(ctx: Context, v: Int): Boolean {
+        if (!android.provider.Settings.System.canWrite(ctx)) return false
+        return runCatching { android.provider.Settings.System.putInt(ctx.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, v) }.getOrDefault(false)
     }
 
     fun startScreensaver(ctx: Context) = runCatching {

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -52,7 +53,10 @@ import kotlin.math.sin
 
 /* ---------------- audio layers ---------------- */
 
-val AUDIO_KINDS = listOf("Tone", "Noise", "Didgeridoo", "Singing bowl", "Tibetan bells", "Xylophone", "Chimes", "Temple gong", "Tanpura", "Handpan", "Kalimba", "Frame drum", "Rain", "Ocean")
+/** The classic frequency generator (wave shapes, isochronic pulses, sweeps, noise bed, didgeridoo) as one layer. */
+const val GENERATOR_KIND = "Frequency generator"
+val INSTRUMENT_KINDS = listOf("Singing bowl", "Tibetan bells", "Xylophone", "Chimes", "Temple gong", "Tanpura", "Handpan", "Kalimba", "Frame drum")
+val AUDIO_KINDS = listOf("Tone", GENERATOR_KIND, "Noise", "Didgeridoo") + INSTRUMENT_KINDS + listOf("Rain", "Ocean")
 
 private fun mood(name: String, vararg layers: Pair<String, Map<String, Float>>) =
     AudioStack(name, layers.mapIndexed { i, (k, v) -> AudioLayer(i + 1, k, v) })
@@ -87,7 +91,11 @@ data class AudioLayer(val id: Int, val kind: String, val v: Map<String, Float> =
         val DEFAULTS = mapOf(
             "on" to 1f, "level" to 0.5f, "pan" to 0f, "wander" to 0.3f, "minutes" to 5f,
             "carrier" to 200f, "carrierTo" to -1f, "beat" to 10f, "beatTo" to -1f, "harmonic" to 0f,
-            "follow" to 0f, "pitch" to 220f, "every" to 8f, "note" to 65f, "mouth" to 0.5f, "mouthRate" to 0.35f, "breath" to 0.35f
+            "follow" to 0f, "pitch" to 220f, "every" to 8f, "note" to 65f, "mouth" to 0.5f, "mouthRate" to 0.35f, "breath" to 0.35f,
+            // frequency generator
+            "beatEnd" to -1f, "sweep" to 0f, "wave" to 0f, "iso" to 0f, "isoDepth" to 0.8f, "noise" to 0f, "didge" to 0f, "didgeLevel" to 0.6f, "preset" to -1f, "toneOff" to 0f,
+            // instruments: how they're played, beyond pitch and how often
+            "octave" to 0f, "sustain" to 1f, "bright" to 1f, "space" to 1f, "loose" to 0.5f, "vary" to 0.4f, "spread" to 1f, "detune" to 0f
         )
         fun fromJson(o: JSONObject): AudioLayer {
             val vo = o.optJSONObject("v") ?: JSONObject(); val m = HashMap<String, Float>()
@@ -122,6 +130,18 @@ object AudioMix {
         var phaseL = 0; var phaseR = 0; var walk = 0f; var walkV = 0f
         var didge: Didgeridoo? = null; var synth: AmbientSynth? = null
         var b0 = 0f; var b1 = 0f; var b2 = 0f; var c0 = 0f; var c1 = 0f; var c2 = 0f
+        var gl = 0.0; var gr = 0.0; var gIso = 0.0; var gOn = 1f
+    }
+
+    /** The generator's wave shapes, read from the sine table for the sine. */
+    private fun shape(type: Int, phase: Double): Float {
+        val p = phase - kotlin.math.floor(phase)
+        return when (type) {
+            1 -> (4 * kotlin.math.abs(p - 0.5) - 1).toFloat()
+            2 -> if (p < 0.5) 0.8f else -0.8f
+            3 -> (2 * p - 1).toFloat() * 0.8f
+            else -> { val x = p * 4096.0; val i = x.toInt(); SINE[i] + (SINE[i + 1] - SINE[i]) * (x - i).toFloat() }
+        }
     }
     private val voices = ArrayList<Voice>()
     @Volatile private var fadeSec = 3f
@@ -250,7 +270,44 @@ object AudioMix {
                 val t = Tone(didge = true, didgePitch = a["note"], didgeMouth = a["mouth"], didgeRate = a["mouthRate"], didgeBreath = a["breath"])
                 for (i in 0 until n) { d.next(t); l[i] = d.l * 1.5f; r[i] = d.r * 1.5f }
             }
-            else -> (v.synth ?: AmbientSynth(a.kind, RATE, v.key.hashCode()).also { v.synth = it }).also { it.pitch = a["pitch"]; it.every = a["every"] }.fill(l, r, n)
+            GENERATOR_KIND -> {
+                // the classic generator, sample by sample: L = carrier - beat/2, R = carrier + beat/2, a beat that can sweep,
+                // an isochronic pulse, a 2nd harmonic, a pink-noise bed and an optional didgeridoo
+                val car = a["carrier"]; val b0 = a["beat"]; val be = a["beatEnd"]; val sw = a["sweep"]
+                val type = a["wave"].toInt(); val iso = a["iso"]; val depth = a["isoDepth"]; val h = a["harmonic"]; val nz = a["noise"]
+                val didgeOn = a["didge"] > 0.5f; val dl = a["didgeLevel"]
+                val tone = if (didgeOn) Tone(didge = true, didgePitch = a["note"], didgeMouth = a["mouth"], didgeRate = a["mouthRate"], didgeBreath = a["breath"]) else null
+                val d = if (didgeOn) (v.didge ?: Didgeridoo(RATE).also { v.didge = it }) else null
+                val nyq = RATE / 2f - 100f
+                val norm = 0.5f / (1f + h)
+                val beatNow = if (sw > 0f && be >= 0f) b0 + (be - b0) * (v.clock / (sw * 60.0)).coerceIn(0.0, 1.0).toFloat() else b0
+                AudioBands.toneBeat = beatNow; AudioBands.toneCarrier = car
+                val fl = (car - beatNow / 2f).coerceIn(1f, nyq) / RATE; val fr = (car + beatNow / 2f).coerceIn(1f, nyq) / RATE
+                val on = if (a["toneOff"] > 0.5f) 0f else 1f   // silence the carrier, keep the noise and didgeridoo
+                for (i in 0 until n) {
+                    v.gl += fl; v.gr += fr
+                    v.gOn += (on - v.gOn) * 0.0005f
+                    var x = (shape(type, v.gl) + h * shape(type, v.gl * 2)) * v.gOn
+                    var y = (shape(type, v.gr) + h * shape(type, v.gr * 2)) * v.gOn
+                    if (iso > 0f) { v.gIso += iso / RATE; val g = 1f - depth * (0.5f - 0.5f * shape(0, v.gIso)); x *= g; y *= g }
+                    if (nz > 0f) {
+                        val w = noise()
+                        v.b0 = 0.99765f * v.b0 + w * 0.0990460f; v.b1 = 0.96300f * v.b1 + w * 0.2965164f; v.b2 = 0.57000f * v.b2 + w * 1.0526913f
+                        val pink = (v.b0 + v.b1 + v.b2 + w * 0.1848f) * 0.18f * nz * 2f
+                        x += pink; y += pink
+                    }
+                    if (d != null && tone != null) { d.next(tone); x += d.l * dl * 2f; y += d.r * dl * 2f }
+                    l[i] = x * norm; r[i] = y * norm
+                }
+                // phases stay small, so they keep their precision over hours
+                v.gl -= kotlin.math.floor(v.gl); v.gr -= kotlin.math.floor(v.gr); v.gIso -= kotlin.math.floor(v.gIso)
+                v.clock += n * dt
+            }
+            else -> (v.synth ?: AmbientSynth(a.kind, RATE, v.key.hashCode()).also { v.synth = it }).also {
+                it.pitch = a["pitch"]; it.every = a["every"]
+                it.octave = a["octave"]; it.sustain = a["sustain"]; it.bright = a["bright"]; it.space = a["space"]
+                it.loose = a["loose"]; it.vary = a["vary"]; it.spread = a["spread"]; it.detune = a["detune"]
+            }.fill(l, r, n)
         }
     }
 }
@@ -302,6 +359,7 @@ object Med {
     private fun sp(ctx: Context) = ctx.getSharedPreferences("starshine_med", Context.MODE_PRIVATE)
 
     fun load(ctx: Context) {
+        MoodIcons.load(ctx)
         if (loaded) return
         loaded = true
         val p = sp(ctx)
@@ -324,7 +382,7 @@ object Med {
         journeys = journeys.map { j -> j.copy(steps = j.steps.map { if (it.audio == old) it.copy(audio = new) else it }) }; saveJourneys(ctx)
         draft?.let { if (it.name == old) draft = it.copy(name = new) }
         if (Sound.current == old) Sound.current = new
-        Drafts.renamed(ctx, old, new)
+        Drafts.renamed(ctx, old, new); MoodIcons.renamed(ctx, old, new)
         return true
     }
     fun renameSceneInJourneys(ctx: Context, old: String, new: String) {
@@ -391,11 +449,44 @@ object Med {
 private fun fmt(v: Float, d: Int = 1) = String.format(Locale.US, "%.${d}f", v)
 private fun <T> cycle(l: List<T>, cur: T, d: Int): T { val i = l.indexOf(cur).coerceAtLeast(0); return l[(i + d + l.size) % l.size] }
 
+/** Every scene (or every mood) as icons with their titles, for a journey step. OK = use it · Back = keep the current one. */
+@Composable
+private fun StepPicker(scenes: Boolean, current: String, onPick: (String) -> Unit, onClose: () -> Unit) {
+    BackHandler { onClose() }
+    val prefix = if (scenes) "md:ps:" else "md:pa:"
+    LaunchedEffect(Unit) { delay(80); FocusMem.restoreSoon(if (current.isEmpty() && !scenes) "row:md:pa:keep" else prefix + current) }
+    var hint by remember { mutableStateOf("") }
+    Text(if (scenes) "CHOOSE A SCENE" else "CHOOSE A MOOD", color = CYAN, fontSize = 11.sp, letterSpacing = 1.2.sp, maxLines = 1)
+    Text(hint.ifEmpty { "OK = use it · Back = keep " + current.ifEmpty { "the same sound" } }, color = DIM, fontSize = 9.sp, maxLines = 1, modifier = Modifier.padding(bottom = 4.dp))
+    LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (scenes) SCENE_GROUPS.forEach { g ->
+            val list = if (g == MY_SCENES) Bg2.mine else BUILT_IN_SCENES.filter { it.group == g }
+            if (list.isNotEmpty()) {
+                item(key = "psh:$g") { Header(g) }
+                items(list.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
+                    val row = list.map { it.name }.chunked(ICON_COLUMNS)[k]
+                    IconRow(row, count = { n -> if (n == current) 1 else 0 }, idOf = { prefix + it }, height = 36, label = { it },
+                        onHint = { n -> hint = n; if (n.isNotEmpty()) Bg2.pristine(n)?.let { Bg2.preview = it; lastBrowsedScene = it.name } },
+                        onPress = { onPick(it) }) { n, c, m -> SceneIcon(list.firstOrNull { it.name == n }, c, m) }
+                }
+            }
+        } else {
+            item { Row_("Keep the sound already playing", current.isEmpty(), id = "md:pa:keep", onFocus = { hint = "" }) { onPick("") } }
+            items(Med.stacks.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
+                val row = Med.stacks.map { it.name }.chunked(ICON_COLUMNS)[k]
+                IconRow(row, count = { n -> if (n == current) 1 else 0 }, idOf = { prefix + it }, height = 36, label = { it },
+                    onHint = { hint = it }, onPress = { onPick(it) }) { n, c, m -> MoodIcon(Med.stacks.firstOrNull { it.name == n }, c, m) }
+            }
+        }
+    }
+}
+
 @Composable
 fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> Unit) {
     val ctx = LocalContext.current
     var name by Med.journeyPick
     var stepNo by remember { mutableIntStateOf(-1) }
+    var picker by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf(false) }
     val j = Med.journeys.firstOrNull { it.name == name } ?: Med.journeys.firstOrNull()
     val first = remember { FocusRequester() }
@@ -431,9 +522,15 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
             val i = stepNo
             fun set(n: JourneyStep) = update(j.steps.toMutableList().also { it[i] = n })
             val audios = listOf("") + Med.stacks.map { it.name }
-            LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                item { Box(Modifier.focusRequester(first)) { Adjust("Scene", st.scene, { val n = st.copy(scene = cycle(scenes, st.scene, -1)); set(n); preview(n) }, compact = true) { val n = st.copy(scene = cycle(scenes, st.scene, 1)); set(n); preview(n) } } }
-                item { Adjust("Audio", st.audio.ifEmpty { "keep playing" }, { set(st.copy(audio = cycle(audios, st.audio, -1))) }, compact = true) { set(st.copy(audio = cycle(audios, st.audio, 1))) } }
+            val pick = picker
+            if (pick != null) StepPicker(pick == "scene", if (pick == "scene") st.scene else st.audio,
+                onPick = { v -> val n = if (pick == "scene") st.copy(scene = v) else st.copy(audio = v); set(n); preview(n); picker = null; FocusMem.scope?.launch { delay(80); FocusMem.restoreSoon(if (pick == "scene") "adj:Scene" else "adj:Audio") } },
+                onClose = { preview(st); picker = null; FocusMem.scope?.launch { delay(80); FocusMem.restoreSoon(if (pick == "scene") "adj:Scene" else "adj:Audio") } })
+            else LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // ← → step through them one by one; a long press on OK opens all of them as icons
+                item { Box(Modifier.focusRequester(first)) { Adjust("Scene", st.scene, { val n = st.copy(scene = cycle(scenes, st.scene, -1)); set(n); preview(n) }, compact = true, onOk = { picker = "scene" }) { val n = st.copy(scene = cycle(scenes, st.scene, 1)); set(n); preview(n) } } }
+                item { Adjust("Audio", st.audio.ifEmpty { "keep playing" }, { set(st.copy(audio = cycle(audios, st.audio, -1))) }, compact = true, onOk = { picker = "audio" }) { set(st.copy(audio = cycle(audios, st.audio, 1))) } }
+                item { Text((if (M5.editLock) "Hold OK" else "OK") + " on Scene or Audio shows them all", color = DIM, fontSize = 9.sp, modifier = Modifier.padding(start = 12.dp)) }
                 item { Adjust("Time", fmt(st.minutes) + " min", { set(st.copy(minutes = ((st.minutes - 0.1f) * 10f).let { Math.round(it) / 10f }.coerceAtLeast(0.1f))) }, compact = true) { set(st.copy(minutes = ((st.minutes + 0.1f) * 10f).let { Math.round(it) / 10f })) } }
                 item { Header(if (stepNo == 0) "Transition from your current background" else "Transition from the previous background") }
                 item { Adjust("Type", TRANSITIONS[st.transition.coerceIn(0, TRANSITIONS.lastIndex)], { set(st.copy(transition = (st.transition - 1 + TRANSITIONS.size) % TRANSITIONS.size)) }, compact = true) { set(st.copy(transition = (st.transition + 1) % TRANSITIONS.size)) } }
@@ -460,10 +557,16 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
             val now = Med.playing
             Text(if (now != null) "Playing ${now.name}, step ${Med.stepIndex + 1}" + if (Med.paused) " (paused)" else "" else "Plan a journey of scenes and sound", color = if (now != null) GREEN else DIM, fontSize = 10.sp, modifier = Modifier.padding(bottom = 4.dp))
             LoopColumn(state = FocusMem.list("med:list"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                item { Box(Modifier.focusRequester(first)) { Adjust("Journey", j?.name ?: "none", { name = cycle(Med.journeys.map { it.name }, name, -1) }, compact = true) { name = cycle(Med.journeys.map { it.name }, name, 1) } } }
-                if (j != null) item {
+                item { Box(Modifier.focusRequester(first)) {
                     if (now != null) Row_("■ Stop", false, id = "md:stop", onFocus = {}) { onStop() }
-                    else Row_("▶ Play this journey", false, id = "md:play", category = true, onFocus = {}) { if (j.steps.isNotEmpty()) onPlay(j) }
+                    else Row_("▶ Play: " + (j?.name ?: "choose a journey"), false, id = "md:play", category = true, onFocus = {}) { if (j != null && j.steps.isNotEmpty()) onPlay(j) }
+                } }
+                // journeys as icons with their titles, like scenes and moods: OK selects one
+                item { Header("Journeys") }
+                items(Med.journeys.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
+                    val row = Med.journeys.map { it.name }.chunked(ICON_COLUMNS)[k]
+                    IconRow(row, count = { n -> if (n == j?.name) 1 else 0 }, idOf = { "md:j:$it" }, height = 36, label = { it }, onHint = {},
+                        onPress = { n -> name = n }) { n, c, m -> SceneIcon(Med.journeys.firstOrNull { it.name == n }?.steps?.firstOrNull()?.let { Bg2.pristine(it.scene) }, c, m) }
                 }
                 if (j != null && now == null) item { Row_("🔬 Play it with the audio test", false, id = "md:test", onFocus = {}) { if (j.steps.isNotEmpty()) { AudioProbe.start(ctx, j.name); onPlay(j) } } }
                 if (AudioProbe.summary.isNotEmpty()) item { Text("Audio test: " + AudioProbe.summary, color = AMBER, fontSize = 9.sp, modifier = Modifier.padding(6.dp)) }
@@ -542,6 +645,7 @@ fun WaveIcon(kind: String, color: androidx.compose.ui.graphics.Color, modifier: 
             val x = i.toFloat() / seedPoints
             val y = when (kind) {
                 "Tone" -> sin(2 * PI * x * 3).toFloat() * 0.8f
+                GENERATOR_KIND -> (if (((x * 4f) % 1f) < 0.5f) 0.6f else -0.6f) * (0.6f + 0.4f * sin(2 * PI * x).toFloat())
                 "Noise" -> sin(x * 91f) * sin(x * 37f + 1f) * 0.8f
                 "Didgeridoo" -> (sin(2 * PI * x * 2).toFloat() * 0.6f + sin(2 * PI * x * 6).toFloat() * 0.25f)
                 "Rain" -> if (i % 7 == 0) -0.85f else sin(x * 57f) * 0.2f

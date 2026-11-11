@@ -25,7 +25,7 @@ import java.nio.ByteBuffer
  */
 class DroneStream(
     private val ctx: Context, private val url: String, private val host: String, private val port: Int,
-    private val surface: Surface, private val tcp: Boolean,
+    private val surface: Surface, private val tcp: Boolean, private val wakeFirst: Boolean,
     private val onSize: (Int, Int) -> Unit, private val onLive: () -> Unit, private val onFail: (String) -> Unit
 ) {
     @Volatile private var run = true
@@ -38,8 +38,28 @@ class DroneStream(
     private var raw: FileOutputStream? = null
     private var rawLeft = 512 * 1024
     private var hexLeft = 6
+    private var payload = -1
+    private val jpeg = RtpJpeg()
+    private val screen = JpegScreen(surface)
+    private var frames = 0
 
-    fun start() { Thread({ runCatching { stream() }.onFailure { if (run) { Drone.log(ctx, "stream failed: $it"); onFail(it.message ?: it.toString()) } }; cleanup() }, "starshine-drone").apply { isDaemon = true; start() } }
+    /** Keeps trying until stopped, each attempt from a clean start. */
+    fun start() {
+        Thread({
+            raw = runCatching { FileOutputStream(File(ctx.getExternalFilesDir(null), "drone-raw.bin")) }.getOrNull()
+            var attempt = 0
+            while (run) {
+                attempt++
+                Drone.log(ctx, "attempt $attempt " + if (tcp) "TCP" else "UDP")
+                if (wakeFirst && attempt == 1) runCatching { DatagramSocket().use { it.send(DatagramPacket(byteArrayOf(8, 1), 2, InetAddress.getByName(host), 7099)) } }
+                runCatching { stream() }.onFailure { if (run) { Drone.log(ctx, "stream failed: $it"); onFail(it.message ?: it.toString()) } }
+                closeConnection()
+                liveSent = false; cseq = 1; session = ""; hexLeft = 3
+                var w = 0; while (run && w < 25) { Thread.sleep(100); w++ }
+            }
+            releaseAll()
+        }, "starshine-drone").apply { isDaemon = true; start() }
+    }
     fun stop() { run = false; runCatching { udp?.close() }; runCatching { sock?.close() } }
 
     private class Reply(val status: Int, val headers: Map<String, String>, val body: String)
@@ -76,9 +96,9 @@ class DroneStream(
     }
 
     private fun stream() {
-        raw = runCatching { FileOutputStream(File(ctx.getExternalFilesDir(null), "drone-raw.bin")) }.getOrNull()
         val s = Socket(); sock = s
         s.connect(InetSocketAddress(host, port), 3000); s.soTimeout = 6000
+        Drone.log(ctx, "connected from " + s.localAddress.hostAddress)
         val input = BufferedInputStream(s.getInputStream())
         send("OPTIONS", url); read(input, "OPTIONS")
         send("DESCRIBE", url, "Accept: application/sdp\r\n")
@@ -92,6 +112,7 @@ class DroneStream(
         val codecName = Regex("""a=rtpmap:\d+\s+([A-Za-z0-9-]+)""").find(rtpmap)?.groupValues?.get(1)?.uppercase() ?: "?"
         val payloadType = if (mi >= 0) lines[mi].split(" ").getOrNull(3)?.toIntOrNull() ?: -1 else -1
         Drone.log(ctx, "codec=$codecName payload=$payloadType")
+        payload = payloadType
         val control = section.firstOrNull { it.startsWith("a=control:") }?.removePrefix("a=control:")?.trim() ?: ""
         val base = (d.headers["content-base"] ?: url).trimEnd('/')
         val track = when { control.isEmpty() || control == "*" -> base; control.startsWith("rtsp://") -> control; else -> "$base/$control" }
@@ -114,7 +135,7 @@ class DroneStream(
         session = (setup.headers["session"] ?: "").substringBefore(";").trim()
         serverPort = Regex("""server_port=(\d+)""").find(setup.headers["transport"] ?: "")?.groupValues?.get(1)?.toIntOrNull() ?: 0
         send("PLAY", url, "Range: npt=0.000-\r\n")
-        read(input, "PLAY")
+        if (read(input, "PLAY").status != 200) error("the drone didn't start the video")
 
         val addr = InetAddress.getByName(host)
         if (!tcp) {
@@ -159,6 +180,15 @@ class DroneStream(
         if (b[0].toInt() and 0x10 != 0 && off + 4 <= n) off += 4 + 4 * (((b[off + 2].toInt() and 255) shl 8) or (b[off + 3].toInt() and 255))
         if (off >= n) return
         val marker = b[1].toInt() and 0x80 != 0
+        if ((b[1].toInt() and 127) == 26 || payload == 26) {   // RTP/JPEG
+            jpeg.add(b, off, n, marker)?.let { j ->
+                if (screen.show(j)) {
+                    if (frames++ == 0) Drone.log(ctx, "first JPEG frame, ${j.size} bytes")
+                    if (!liveSent) { liveSent = true; onSize(640, 352); onLive() }
+                }
+            }
+            return
+        }
         val ts = ((b[4].toLong() and 255) shl 24) or ((b[5].toLong() and 255) shl 16) or ((b[6].toLong() and 255) shl 8) or (b[7].toLong() and 255)
         if (ts != lastTs && frame.size() > 0) flush()
         lastTs = ts
@@ -223,9 +253,14 @@ class DroneStream(
         codec = c; return c
     }
 
-    private fun cleanup() {
+    private fun closeConnection() {
         runCatching { if (session.isNotEmpty()) send("TEARDOWN", url) }
+        runCatching { udp?.close() }; runCatching { sock?.close() }; udp = null; sock = null
+    }
+
+    private fun releaseAll() {
+        closeConnection()
         runCatching { codec?.stop() }; runCatching { codec?.release() }; codec = null
-        runCatching { raw?.close() }; runCatching { udp?.close() }; runCatching { sock?.close() }
+        runCatching { raw?.close() }
     }
 }

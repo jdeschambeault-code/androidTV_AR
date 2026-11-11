@@ -2,4 +2,6 @@
 <paths>
     <external-path name="storage" path="." />
     <external-files-path name="app" path="." />
+    <!-- USB drives and cards are outside shared storage. Only a file the user opens is ever granted to another app. -->
+    <root-path name="drives" path="storage" />
 </paths>

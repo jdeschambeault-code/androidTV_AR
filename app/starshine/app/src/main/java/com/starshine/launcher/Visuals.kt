@@ -1,11 +1,6 @@
 package com.starshine.launcher
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -21,35 +16,15 @@ import kotlin.math.ln
 import kotlin.math.sin
 
 /**
- * Sound visualizer drawn on top of the background while a mood / frequency plays.
- * Driven by the sound's own parameters (no microphone): carrier & beat for tones, the ambient type otherwise.
+ * Line visualizers: a category of Bg layers, nothing else draws them.
+ * Driven by the sound's own parameters (no microphone): carrier & beat for tones, a slow default otherwise.
  * Photosensitivity-safe: on-screen modulation is capped at 2 Hz even for fast beats (e.g. 40 Hz gamma).
  */
-val VISUAL_MODES = listOf("Auto", "Sine waves", "Lissajous", "Kaleidoscope", "Spiral", "Flow", "Off")
+val VISUAL_MODES = listOf("Sine waves", "Lissajous", "Kaleidoscope", "Spiral", "Flow")
 
 private const val TAU = (2 * PI).toFloat()
 
-@Composable
-fun SoundVisualizer(mode: String, intensity: Float, hue: Float, modifier: Modifier = Modifier) {
-    if (mode == "Off" || Sound.current.isEmpty() || Sound.pausedByOther) return
-    val t by produceState(0f) { val s = withFrameNanos { it }; while (true) withFrameNanos { value = (it - s) / 1e9f } }
-    val tone = Sound.toneNow
-    val m = if (mode != "Auto") mode else when { tone == null -> "Flow"; tone.beat > 0f -> "Lissajous"; else -> "Sine waves" }
-    val a = intensity.coerceAtLeast(0f)
-    val c1 = Color.hsl((190f + hue) % 360f, 0.9f, 0.65f)
-    val c2 = Color.hsl((275f + hue) % 360f, 0.85f, 0.7f)
-    Canvas(modifier) {
-        when (m) {
-            "Sine waves" -> sines(t, tone, a, c1, c2)
-            "Lissajous" -> lissajous(t, tone, a, c1, c2)
-            "Kaleidoscope" -> kaleido(t, tone, a, c1, c2)
-            "Spiral" -> spiral(t, tone, a, c1, c2)
-            else -> flow(t, a, c1, c2)
-        }
-    }
-}
-
-/** The same line visuals as a Bg layer: drawn on black, follows the playing sound. */
+/** Drawn on black into the layer's texture; follows the playing sound if there is one. */
 fun DrawScope.drawVisualLayer(mode: String, t: Float, intensity: Float, hue: Float) {
     val tone = Sound.toneNow
     val c1 = Color.hsl(((190f + hue) % 360f + 360f) % 360f, 0.9f, 0.65f)

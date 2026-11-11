@@ -10,10 +10,13 @@ import kotlin.math.sin
  * What the sound is doing, split into bands for the Bg layers: Voice, Level, Bass, Mid, High, Beat, Swell (all 0..1).
  * Reads the device's mixed output (so it follows Starshine's own moods, and music or video from other apps where the
  * system allows it). If that capture isn't available it falls back to the parameters of the playing mood or frequency.
- * Beat is limited to 2 per second (photosensitivity-safe, same rule as the sound visualizer).
+ * Beat is limited to 2 per second (photosensitivity-safe, same rule as the line visualizers).
  */
 object AudioBands {
-    private const val N = 7
+    private const val N = 9
+    /** Set by the audio engine while a tone plays: 0 = nothing. */
+    @Volatile var toneBeat = 0f
+    @Volatile var toneCarrier = 0f
     private val raw = FloatArray(N)
     private val smooth = FloatArray(N)
     private val peak = FloatArray(N) { 0.05f }
@@ -28,6 +31,7 @@ object AudioBands {
     @Synchronized fun start() {
         users++
         if (viz != null) return
+        AudioProbe.event("sound analyser starting")
         viz = runCatching {
             Visualizer(0).apply {
                 captureSize = 1024.coerceAtMost(Visualizer.getCaptureSizeRange()[1])
@@ -42,7 +46,7 @@ object AudioBands {
 
     @Synchronized fun stop() {
         users = (users - 1).coerceAtLeast(0)
-        if (users == 0) { runCatching { viz?.enabled = false; viz?.release() }; viz = null }
+        if (users == 0) { if (viz != null) AudioProbe.event("sound analyser stopping"); runCatching { viz?.enabled = false; viz?.release() }; viz = null }
     }
 
     private fun analyse(fft: ByteArray, rateMilli: Int) {
@@ -91,6 +95,13 @@ object AudioBands {
         if (level > avg * 1.25f + 0.08f && now - lastBeat > 500L) { lastBeat = now; smooth[5] = 1f }
         smooth[5] = (smooth[5] - dt * 2.8f).coerceAtLeast(0f)
         smooth[6] += (level - smooth[6]) * (dt * 0.5f).coerceAtMost(1f)
+        // frequency drives the picture directly. On-screen pulsing stays at 2 per second or less, even for a 40 Hz beat
+        val tone = Sound.toneNow
+        val beat = if (toneBeat > 0f) toneBeat else tone?.beat ?: 0f
+        val carrier = if (toneCarrier > 0f) toneCarrier else tone?.carrier ?: 0f
+        val active = Sound.current.isNotEmpty() && !Sound.pausedByOther
+        smooth[7] = if (active && beat > 0f) 0.5f + 0.5f * sin(2f * PI.toFloat() * beat.coerceIn(0.05f, 2f) * clock) else 0f
+        smooth[8] = if (active && carrier > 0f) ((kotlin.math.ln(carrier.coerceIn(30f, 3000f)) - 3.4f) / 4.6f).coerceIn(0f, 1f) else 0f
     }
 
     fun band(i: Int) = smooth[i.coerceIn(0, N - 1)]

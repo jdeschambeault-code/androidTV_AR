@@ -307,6 +307,8 @@ class MainActivity : ComponentActivity() {
         Bg2.noFx = intent.getBooleanExtra("noFx", false)
         // test hook: --es playerTest <package> = choose that player and press ▶ (same as the quick panel)
         intent.getStringExtra("playerTest")?.let { MusicPlayer.choose(this, it); MusicPlayer.play(this) }
+        // test hook: --es browseTest <package> = log what that player's library shows Starshine (tag StarshinePlayer)
+        intent.getStringExtra("browseTest")?.let { MusicPlayer.probeBrowse(this, it) }
         intent.getStringExtra("supportKey")?.let { Support.enter(this, it) }
         intent.getStringExtra("bgBuild")?.let { buildRequest = it }
         intent.getStringExtra("journeyTest")?.let { journeyRequest = it + "|" + intent.getFloatExtra("journeyScale", 1f) + "|" + System.nanoTime() }
@@ -1619,6 +1621,8 @@ fun launch(ctx: Context, id: String, browser: String = "") {
         }
         else -> pm.getLeanbackLaunchIntentForPackage(id) ?: pm.getLaunchIntentForPackage(id) ?: return
     }
+    // which code opened it (tag StarshineLaunch): an app coming back to the front by itself is otherwise impossible to trace
+    android.util.Log.i("StarshineLaunch", "open $id from " + Throwable().stackTrace.drop(1).take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" })
     runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 

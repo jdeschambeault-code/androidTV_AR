@@ -414,6 +414,8 @@ fun RenderTab() {
             Bg2.saveLooks(ctx, Bg2.looks + RenderFx.Look("My look $n", fx))
             android.widget.Toast.makeText(ctx, "Saved as \"My look $n\"", android.widget.Toast.LENGTH_SHORT).show()
         } }
+        item { Header("Edges") }
+        item { slider(RenderFx.AA) }
         item { Header("Light") }
         item { slider(RenderFx.BLOOM) }
         item { slider(RenderFx.THRESH) }

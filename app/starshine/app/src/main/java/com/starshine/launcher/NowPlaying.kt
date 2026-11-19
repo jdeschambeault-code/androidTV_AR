@@ -48,7 +48,7 @@ object NowPlaying {
 object MusicPlayer {
     /** Package, name. TV builds first: Android TV boxes get those from the Play Store. */
     val KNOWN = listOf(
-        "com.google.android.youtube.tvmusic" to "YouTube Music", "com.google.android.apps.youtube.music" to "YouTube Music",
+        "com.google.android.apps.youtube.music" to "YouTube Music", "com.google.android.youtube.tvmusic" to "YouTube Music",   // phone build first: with Premium it plays in the background
         // SmartTube: a free YouTube client for TV that can keep playing behind other apps (its Settings → Player → Background playback)
         "org.smarttube.stable" to "SmartTube (YouTube, background)", "org.smarttube.beta" to "SmartTube (YouTube, background)",
         "com.teamsmart.videomanager.tv" to "SmartTube (YouTube, background)",
@@ -128,10 +128,39 @@ object MusicPlayer {
         main.postDelayed({ if (!done) { done = true; b.disconnect(); openThenPlay(ctx, p) } }, 3000)
     }
 
+    /**
+     * Test: can Starshine read this player's library (playlists, mixes) itself? Connects to its media browser service and logs
+     * the top level and one level under each folder (tag StarshinePlayer). Many players only answer approved apps.
+     */
+    fun probeBrowse(ctx: Context, p: String) {
+        val svc = ctx.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(p), 0)
+            .firstOrNull()?.serviceInfo?.let { android.content.ComponentName(it.packageName, it.name) }
+        log("browse $p: service " + (svc?.className ?: "none")); if (svc == null) return
+        var b: android.media.browse.MediaBrowser? = null
+        fun list(id: String, depth: Int) {
+            b?.subscribe(id, object : android.media.browse.MediaBrowser.SubscriptionCallback() {
+                override fun onChildrenLoaded(parentId: String, children: MutableList<android.media.browse.MediaBrowser.MediaItem>) {
+                    log("browse $p: '$parentId' has ${children.size} items")
+                    children.take(12).forEach { c ->
+                        log("browse $p:   " + "  ".repeat(depth) + (if (c.isBrowsable) "[folder] " else "") + (if (c.isPlayable) "[play] " else "") + c.description.title)
+                        if (depth == 0 && c.isBrowsable) list(c.mediaId ?: return@forEach, 1)
+                    }
+                }
+                override fun onError(parentId: String) { log("browse $p: '$parentId' refused") }
+            })
+        }
+        b = android.media.browse.MediaBrowser(ctx, svc, object : android.media.browse.MediaBrowser.ConnectionCallback() {
+            override fun onConnected() { log("browse $p: connected, root '${b?.root}'"); list(b?.root ?: return, 0) }
+            override fun onConnectionFailed() { log("browse $p: connection refused") }
+        }, null)
+        runCatching { b.connect() }.onFailure { log("browse $p: " + it.message) }
+        main.postDelayed({ log("browse $p: done"); runCatching { b.disconnect() } }, 15000)
+    }
+
     /** The fallback: the app opens, play is pressed once its session exists, then Starshine comes back in front. */
     private fun openThenPlay(ctx: Context, p: String) {
         val i = launchIntent(ctx, p) ?: return
-        log("play $p: opening the app"); toast(ctx, "Starting ${name(p)}…")
+        log("play $p: opening the app from " + Throwable().stackTrace.drop(1).take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }); toast(ctx, "Starting ${name(p)}…")
         runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         var tries = 0
         val poll = object : Runnable {

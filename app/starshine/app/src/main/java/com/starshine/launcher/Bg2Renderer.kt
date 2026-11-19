@@ -127,7 +127,7 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // a new GL context invalidates every GL object
-        clipA = null; clipB = null; warmClip = null; warmed = null; peVbo = 0; fxScene = null; fxHistA = null; fxHistB = null; fxSmallA = null; fxSmallB = null; outFbo = 0; gridVbo = 0; tessMesh = null; depthRbs.clear(); progs.clear(); targets.clear(); meshes.clear(); releaseMedia(); canvases.values.forEach { it.stop() }; canvases.clear(); last = System.nanoTime()
+        clipA = null; clipB = null; warmClip = null; warmed = null; peVbo = 0; fxScene = null; fxHistA = null; fxHistB = null; fxSmallA = null; fxSmallB = null; fxAA = null; outFbo = 0; gridVbo = 0; tessMesh = null; depthRbs.clear(); progs.clear(); targets.clear(); meshes.clear(); releaseMedia(); canvases.values.forEach { it.stop() }; canvases.clear(); last = System.nanoTime()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) { viewW = width; viewH = height }
@@ -216,7 +216,7 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
             // half during a blend, and the last pass scales it up to the screen
             // never below 960 wide when still (720 during a blend): at Normal quality the surface is already 960x540, and
             // shrinking that again made every scene look soft. Only the higher qualities are reduced, to keep their speed
-            val k = (if (!fx) 1f else if (from != null) maxOf(0.5f, 720f / w) else maxOf(0.75f, 960f / w)).coerceAtMost(1f)
+            val k = (if (!fx) 1f else if (from != null) maxOf(0.5f, 720f / w) else if (RenderFx.get(fxm, "aa") > 0.001f) 1f else maxOf(0.75f, 960f / w)).coerceAtMost(1f)
             val sw = (w * k).toInt(); val sh = (h * k).toInt()
             if (fx) beginFx(sw, sh)
             if (from != null) drawTransition(from, scene, mix, sw, sh)
@@ -247,6 +247,7 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
     private var outFbo = 0
     private var fxScene: Target? = null
     private var fxHistA: Target? = null; private var fxHistB: Target? = null
+    private var fxAA: Target? = null
     private var fxSmallA: Target? = null; private var fxSmallB: Target? = null
     private var fxTime = 0f
     /** The scene being finished is 3D: the flare follows its sun. */
@@ -282,6 +283,16 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
                 pass(p, into)
             }
             fxHistA = into; fxHistB = old; src = into
+        }
+        // antialiasing (FXAA): finds edges by contrast in luminance and blends across them, before the other effects
+        val aa = RenderFx.get(fxm, "aa")
+        if (aa > 0.001f) {
+            val into = clip(fxAA, src.w, src.h).also { fxAA = it }
+            program("fxAA", FULL_VS, FXAA_FS)?.let { p ->
+                GLES20.glUseProgram(p.id); GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, src.tex)
+                GLES20.glUniform1i(p.loc("TEX"), 0); GLES20.glUniform2f(p.loc("PX"), 1f / src.w, 1f / src.h); GLES20.glUniform1f(p.loc("K"), aa)
+                pass(p, into); src = into
+            }
         }
         // a soft copy at a quarter of the size feeds bloom, glare, flare ghosts, depth of field and sharpening
         val needBlur = listOf("bloom", "glare", "flare", "dof", "sharpen").any { RenderFx.get(fxm, it) > 0.001f }
@@ -1404,6 +1415,27 @@ void main() {
         private const val BLIT_FS = "precision mediump float; varying vec2 v; uniform sampler2D TEX; void main(){ gl_FragColor = vec4(texture2D(TEX, v).rgb, 1.0); }"
         private const val ACC_FS = "precision mediump float; varying vec2 v; uniform sampler2D CUR; uniform sampler2D OLD; uniform float K;" +
             "void main(){ gl_FragColor = vec4(mix(texture2D(CUR, v).rgb, texture2D(OLD, v).rgb, K), 1.0); }"
+        /** FXAA (simplified, after Timothy Lottes): edges found by luminance contrast are blended along their direction.
+         *  K = strength. One pass, nine texture reads. */
+        private const val FXAA_FS = """
+precision mediump float; varying vec2 v; uniform sampler2D TEX; uniform vec2 PX; uniform float K;
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec3 m = texture2D(TEX, v).rgb;
+  float lM = lum(m);
+  float lNW = lum(texture2D(TEX, v + vec2(-1.0, -1.0) * PX).rgb), lNE = lum(texture2D(TEX, v + vec2(1.0, -1.0) * PX).rgb);
+  float lSW = lum(texture2D(TEX, v + vec2(-1.0, 1.0) * PX).rgb), lSE = lum(texture2D(TEX, v + vec2(1.0, 1.0) * PX).rgb);
+  float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE))), lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+  if (lMax - lMin < max(0.0312, lMax * 0.125)) { gl_FragColor = vec4(m, 1.0); return; }
+  vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+  float red = max((lNW + lNE + lSW + lSE) * 0.03125, 0.0078125);
+  dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + red), -8.0, 8.0) * PX;
+  vec3 a = 0.5 * (texture2D(TEX, v + dir * (1.0 / 3.0 - 0.5)).rgb + texture2D(TEX, v + dir * (2.0 / 3.0 - 0.5)).rgb);
+  vec3 b = a * 0.5 + 0.25 * (texture2D(TEX, v - dir * 0.5).rgb + texture2D(TEX, v + dir * 0.5).rgb);
+  float lB = lum(b);
+  vec3 aa = (lB < lMin || lB > lMax) ? a : b;
+  gl_FragColor = vec4(mix(m, aa, K), 1.0);
+}"""
         private const val BLUR_FS = """
 precision mediump float; varying vec2 v; uniform sampler2D TEX; uniform vec2 D;
 void main() {

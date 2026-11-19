@@ -118,18 +118,11 @@ class Didgeridoo(private val rate: Int) {
         }
         s2 += f1 * s1; val h1 = y - s2 - 0.33f * s1; s1 += f1 * h1
         t2 += f2 * t1; val h2 = y - t2 - 0.4f * t1; t1 += f2 * h2
-        // circular breathing: the drone dips while air is snatched through the nose
-        breathT -= dt.toFloat()
-        if (breathT < -0.32f) { breathEvery = 5f + 4f * (noise() * 0.5f + 0.5f); breathT = breathEvery }
-        val br = t.didgeBreath.coerceIn(0f, 1f)
-        val inhale = if (breathT < 0f) sin(PI * (-breathT / 0.32f)).toFloat() else 0f
-        val drive = 1f - 0.55f * br * inhale
-        val w = noise()
-        n1 += 0.16f * (w - n1); n2 += 0.03f * (n1 - n2)
-        val airy = (n1 - n2) * (0.05f + 0.1f * mouth) * br * drive + (n1 - n2) * inhale * br * 0.55f
-        val m = (y * 0.11f + s1 * 0.30f + t1 * 0.22f) * drive
-        l = (m + t1 * 0.05f + airy) * 0.9f
-        r = (m - t1 * 0.05f + airy * 0.8f) * 0.9f
+        // no breath: its air noise and circular-breathing dips sounded like plain noise, so the drone is clean and steady
+        // (a saved "breath" value is simply ignored)
+        val m = y * 0.11f + s1 * 0.30f + t1 * 0.22f
+        l = (m + t1 * 0.05f) * 0.9f
+        r = (m - t1 * 0.05f) * 0.9f
     }
 }
 
@@ -196,7 +189,7 @@ object Tones {
                     buf[2 * i + 1] = (r * gain * rb * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
                     n++
                 }
-                track.write(buf, 0, buf.size)
+                track.setVolume(Sound.gain); track.write(buf, 0, buf.size)
             }
             runCatching { track.stop(); track.release() }
         }.apply { isDaemon = true; start() }

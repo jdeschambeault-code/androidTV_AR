@@ -91,7 +91,7 @@ fun IconRow(row: List<String>, count: (String) -> Int, idOf: (String) -> String,
 /** A scene's icon, made from its own layers so it stays true after edits: its main shape, with the next layer small in the corner. */
 @Composable
 fun SceneIcon(scene: BgScene?, color: Color, modifier: Modifier) {
-    val all = scene?.layers.orEmpty()
+    val all = scene?.layers.orEmpty().filter { it.type != CAMERA }
     val seen = all.filter { it.on && it.show }.ifEmpty { all }
     val main = seen.lastOrNull { it.kind == GenKind.Line || it.kind == GenKind.Solid } ?: seen.lastOrNull()
     val other = seen.lastOrNull { it !== main }
@@ -139,6 +139,14 @@ fun AddAgainBox(name: String, count: Int, onRemove: () -> Unit, onAnother: () ->
 /** A small line drawing of a visual layer. */
 @Composable
 fun LayerIcon(generator: String, color: Color, modifier: Modifier, dim: Int = 0) {
+    // 3D elements show the picture of what they are made from; the camera has its own
+    if (generator == CAMERA) { Canvas(modifier) { Pen(this, color).symbol("Camera") }; return }
+    // a 3D element shows the icon it maps to; one that maps to itself is drawn directly (never looked up again: that looped)
+    if (generator(generator).let { it.name == generator && it.kind == GenKind.Space }) {
+        val m = Space.iconName(generator)
+        if (m != generator) LayerIcon(m, color, modifier, dim) else Canvas(modifier) { Pen(this, color).draw(generator) }
+        return
+    }
     val name = generator.removePrefix(CLASSIC_PREFIX).removePrefix(LINES_PREFIX)
     val kind = generator(generator).takeIf { it.name == generator }?.kind
     if (kind == GenKind.Line || kind == GenKind.Solid) {
@@ -246,6 +254,7 @@ private class Pen(val d: DrawScope, val color: Color) {
             "Noise" -> { var x = -0.95f; var i = 0; while (x < 0.95f) { val h = 0.2f + 0.7f * kotlin.math.abs(sin(i * 12.9898f) * 4375.85f % 1f); seg(x, -h, x, h); x += 0.12f; i++ } }
             "Feather" -> { curve(40) { t -> -0.6f + 1.2f * t to 0.8f - 1.6f * t + 0.1f * sin(pi * t) }; for (i in 1 until 8) { val k = i / 8f; val x = -0.6f + 1.2f * k; val y = 0.8f - 1.6f * k; seg(x, y, x - 0.35f * (1f - k * 0.5f), y - 0.1f); seg(x, y, x + 0.25f * (1f - k * 0.5f), y + 0.22f) } }
             "Spiral" -> spiral(2.6f, 0.95f)
+            "Camera" -> { curve(4, true) { t -> val q = Math.round(t * 4) % 4; (if (q == 1 || q == 2) 0.55f else -0.85f) to (if (q >= 2) 0.5f else -0.5f) }; curve(3, true) { t -> when (Math.round(t * 3) % 3) { 0 -> 0.55f to -0.25f; 1 -> 0.95f to -0.5f; else -> 0.95f to 0.5f } }; ring(-0.15f, 0f, 0.28f); dot(-0.15f, 0f, 0.08f) }
             else -> draw(name)
         }
     }

@@ -30,12 +30,14 @@ android {
         applicationId = "com.starshine.launcher"
         minSdk = 26
         targetSdk = 34
-        versionCode = 56
-        versionName = "2.6.0"
+        versionCode = 57
+        versionName = "2.7.0"
         buildConfigField("String", "JELLYFIN", personal("jellyfin"))
         buildConfigField("String", "PRIVATE_DOMAIN", personal("privateDomain"))
         buildConfigField("String", "WEB_TILES", personal("webTiles"))
         buildConfigField("String", "BLISS", personal("bliss"))
+        // "Old name>New name": once, the dock tile with the old name becomes your web tile with the new name
+        buildConfigField("String", "DOCK_SWAP", personal("dockSwap"))
     }
     buildTypes {
         // a debuggable app runs several times slower, which the audio on this small device can't afford

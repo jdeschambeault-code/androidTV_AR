@@ -11,7 +11,10 @@ Starshine runs on Android TV boxes and comes with a [Pinokio](https://pinokio.co
 ## Features
 
 **Layered backgrounds**
-- Build scenes from up to 8 layers, with a live preview of every layer before anything is applied
+- Build flat (2D) scenes from up to 16 layers and 3D space scenes from up to 24, with a live preview of every layer before anything is applied
+- Universal particle system (emitters, fields and particle looks, in the spirit of Maya's), with presets such as a spark portal
+- Realistic landscapes: openly licensed photos brought to life with gentle sway, mist and light through the leaves
+- Visual Meditation journeys: a timeline of scenes and sounds that blend from one step to the next
 - Sacred geometry, 3D solids, particles, clouds, fire, water, iris, flares, line visualizers, classic backgrounds, and your own images and videos
 - Layers interact: blend modes, mirrors and kaleidoscopes, mask or warp one layer by another
 - Sound reaction with selectable sources and targets
@@ -46,9 +49,10 @@ See **[HELP.md](HELP.md)** for how everything works. The app shows the same file
 This is an early release, developed and tested on one Rokid Station. Known to be unfinished:
 
 - **Drone video** works on one drone so far (KY UFO, 640×352), and other drones are untested
-- **AOW M5 air mouse:** the OK button fix is still being confirmed
+- **AOW M5 air mouse:** in cursor mode its OK is a mouse click, which the Gboard TV keyboard ignores. Use a keyboard that takes clicks, such as the free [LeanKeyboard](https://play.google.com/store/apps/details?id=org.liskovsoft.androidtv.rukeyboard)
 - **Video export, spoken voice commands and sound reaction to other apps' audio** haven't been fully tested
-- **Visual Meditation** journeys, a full video player and web video takeover are planned, not built
+- **Head tracking** needs glasses or a box that reports a rotation sensor; the Rokid Station doesn't
+- **A full video player and web video takeover** are planned, not built
 
 ## Hardware I use
 
@@ -65,7 +69,9 @@ These are the devices it's developed on. Other glasses, boxes and remotes may wo
 
 ## Install
 
-**With Pinokio:** add this repository's URL to Pinokio, then click:
+**Ready-made APK:** download `starshine-<version>.apk` from the [latest release](https://github.com/jdeschambeault-code/androidTV_AR/releases/latest), then install it with `adb install -r starshine-<version>.apk`, or copy it to the device and open it with a file manager (allow installing from unknown sources). Later releases install over it and keep your settings.
+
+**With Pinokio (build it yourself):** add this repository's URL to Pinokio, then click:
 
 1. **Install (adb + scrcpy)**
 2. **Connect (Wi-Fi ADB)**, entering your device's IP address

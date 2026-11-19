@@ -53,7 +53,10 @@ import java.util.Locale
 @Composable
 fun GeneratorTabs() {
     Row(Modifier.padding(start = 24.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf("Backgrounds", "Moods").forEachIndexed { i, t ->
+        // shown in this order; the numbers are what each tab has always been, so nothing saved changes meaning
+        // one library for flat and 3D scenes ("3D scenes" was its own tab: 3 now opens Scenes)
+        if (Med.subTab == 3) Med.subTab = 0
+        listOf(0 to "Scenes", 1 to "Moods", 2 to "Render").forEach { (i, t) ->
             var focused by remember { mutableStateOf(false) }
             val on = Med.subTab == i
             Text(t, color = if (on || focused) FG else DIM, fontSize = 12.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier
@@ -62,11 +65,16 @@ fun GeneratorTabs() {
                     if (e.type == KeyEventType.KeyUp && (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)) { Med.subTab = i; true }
                     else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                         // entering the list always starts on its first option: apply or play
-                        val moods = Med.subTab == 1
-                        val list = FocusMem.list(if (moods) "mood:tab" else "bg:tab")
+                        val (listId, firstId) = when (Med.subTab) {
+                            1 -> "mood:tab" to "row:mt:apply"
+                            2 -> "render:tab" to "row:look:None"
+                            3 -> "sp:tab" to "row:bgt:apply"
+                            else -> "bg:tab" to "row:bgt:apply"
+                        }
+                        val list = FocusMem.list(listId)
                         FocusMem.scope?.launch {
                             list.scrollToItem(0); androidx.compose.runtime.withFrameNanos { }
-                            FocusMem.restoreSoon(if (moods) "row:mt:apply" else "row:bgt:apply")
+                            FocusMem.restoreSoon(firstId)
                         }
                         true
                     } else false
@@ -80,10 +88,11 @@ fun GeneratorTabs() {
 }
 
 private val openMoods = mutableStateMapOf<String, Boolean>()
-private val FREE_GROUPS = listOf("My moods", "Meditative", "World-inspired", "Frequencies", "Ambient and instruments")
+private val FREE_GROUPS = listOf("My moods", "Meditative", "World-inspired", "Frequencies", "Ambient and instruments", DOWNLOADED)
 private val AMBIENT_KINDS = setOf("Rain", "Ocean", "Singing bowl", "Tibetan bells", "Xylophone", "Chimes", "Temple gong", "Tanpura", "Handpan", "Kalimba", "Frame drum")
 
 private fun groupOf(s: AudioStack, freq: Set<String>) = when {
+    Packs.moods.any { it.name == s.name } -> FREE_GROUPS[5]
     s.name in MEDITATIVE_MOODS.map { it.name } -> FREE_GROUPS[1]
     s.name in WORLD_MOODS.map { it.name } -> FREE_GROUPS[2]
     s.name in freq -> FREE_GROUPS[3]
@@ -110,7 +119,7 @@ fun MoodTab(onBuild: () -> Unit, onStop: () -> Unit, onIconFile: (String) -> Uni
     LaunchedEffect(hinted) {
         if (hinted.isEmpty() || hinted == Sound.current) return@LaunchedEffect
         delay(450)
-        Med.stacks.firstOrNull { it.name == hinted }?.let { Sound.playStack(ctx, it, 1f) }
+        Med.stacks.firstOrNull { it.name == hinted }?.let { Sound.playStack(ctx, it, 0.4f, explicit = false) }
     }
     val icon = iconFor
     if (icon != null) {
@@ -173,7 +182,7 @@ fun MoodEditor(onClose: () -> Unit, onToast: (String) -> Unit, onIconFile: (Stri
     val ctx = LocalContext.current
     val stack = Med.draft ?: AudioStack("My mood", emptyList()).also { Med.draft = it }
     // the mood plays as soon as it's opened; every change after that is heard straight away
-    LaunchedEffect(Unit) { if (stack.layers.isNotEmpty() && Sound.current != stack.name) Sound.playStack(ctx, heard(stack), 0.5f) }
+    LaunchedEffect(Unit) { if (stack.layers.isNotEmpty() && Sound.current != stack.name) Sound.playStack(ctx, heard(stack), 0.5f, explicit = false) }
     // leaving with unsaved work asks what to do with it; a mood saved as new is offered an icon
     var leaving by remember { mutableStateOf(false) }
     var iconFor by remember { mutableStateOf<String?>(null) }
@@ -263,7 +272,7 @@ private fun MoodPanel(stack: AudioStack, first: FocusRequester, onToast: (String
         item(key = "add") { Row_((if (addOpen) "▾ " else "▸ ") + "＋ Add layer", addOpen, id = "md2:add", category = true, onFocus = {}) { addOpen = !addOpen } }
         if (addOpen) {
             // sounds are added by name: their wave pictures looked too much alike to choose from
-            listOf("Tones" to listOf("Tone", GENERATOR_KIND, "Noise"), "Instruments" to listOf("Didgeridoo") + INSTRUMENT_KINDS, "Ambient" to listOf("Rain", "Ocean")).forEach { (title, kinds) ->
+            listOf("Tones" to listOf("Tone", GENERATOR_KIND, "Noise"), "Instruments" to listOf("Didgeridoo") + INSTRUMENT_KINDS + DNB_KIND, "Ambient" to listOf("Rain", "Ocean")).forEach { (title, kinds) ->
                 val open = openMoods["add:$title"] == true
                 item(key = "gh:$title") { Row_((if (open) "▾ " else "▸ ") + title + "  (${kinds.size})", false, id = "mgh:$title", category = true, onFocus = {}) { openMoods["add:$title"] = !open } }
                 if (open) items(kinds, key = { "ks:$it" }) { k ->
@@ -394,7 +403,8 @@ private fun LayerSettings(stack: AudioStack, l: AudioLayer, first: FocusRequeste
                     item { num("harmonic", "2nd harmonic", 0.05f, 2, 0f, 1f) }
                     item { num("noise", "Pink-noise bed", 0.05f, 2, 0f, 1f) }
                 }
-                section(panel, "Didgeridoo", top, if (l["didge"] > 0.5f) f(l["note"], 0) + " Hz" else "off") {
+                // a didgeridoo is its own layer now: this shows only to switch off one an older preset turned on
+                if (l["didge"] > 0.5f) section(panel, "Didgeridoo", top, f(l["note"], 0) + " Hz") {
                     item {
                         val flip = { edit(l.set("didge", if (l["didge"] > 0.5f) 0f else 1f)) }
                         Adjust("Didgeridoo", if (l["didge"] > 0.5f) "on" else "off", { flip() }, compact = true, onOk = { flip() }) { flip() }
@@ -404,7 +414,6 @@ private fun LayerSettings(stack: AudioStack, l: AudioLayer, first: FocusRequeste
                         item { num("note", "Drone note", 1f, 0, 30f, 160f, " Hz") }
                         item { num("mouth", "Mouth movement", 0.05f, 2, 0f, 1f) }
                         item { num("mouthRate", "Mouth speed", 0.05f, 2, 0.05f, 6f, " Hz") }
-                        item { num("breath", "Breath", 0.05f, 2, 0f, 1f) }
                     }
                 }
             }
@@ -412,7 +421,6 @@ private fun LayerSettings(stack: AudioStack, l: AudioLayer, first: FocusRequeste
                 item { num("note", "Drone note", 1f, 0, 30f, 160f, " Hz") }
                 item { num("mouth", "Mouth movement", 0.05f, 2, 0f, 1f) }
                 item { num("mouthRate", "Mouth speed", 0.05f, 2, 0.05f, 6f, " Hz") }
-                item { num("breath", "Breath", 0.05f, 2, 0f, 1f) }
             }
             in INSTRUMENT_KINDS -> {
                 section(panel, "Instrument", top, f(l["pitch"], 0) + " Hz") {

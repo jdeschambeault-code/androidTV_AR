@@ -107,7 +107,7 @@ fun LeaveBox(name: String, canOverwrite: Boolean, onSave: () -> Unit, onSaveNew:
 /** Hold OK on a scene or mood: its own actions first if it has any, then edit, rename, delete. Takes the place of the list until closed. */
 @Composable
 fun ItemMenu(name: String, renameLabel: String, canDelete: Boolean, onEdit: () -> Unit, onRename: (String) -> Boolean, onDelete: () -> Unit, onClose: () -> Unit,
-             actions: List<Pair<String, () -> Unit>> = emptyList()) {
+             actions: List<Pair<String, () -> Unit>> = emptyList(), editLabel: String = "◈ Edit and tweak the layers") {
     var renaming by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf(TextFieldValue(name, TextRange(name.length))) }
@@ -127,7 +127,7 @@ fun ItemMenu(name: String, renameLabel: String, canDelete: Boolean, onEdit: () -
         Text(name, color = CYAN, fontSize = 12.sp, maxLines = 2)
         if (!renaming) {
             actions.forEachIndexed { i, (label, act) -> Row_(label, false, id = "im:a$i", onFocus = {}) { act() } }
-            Row_("◈ Edit and tweak the layers", false, id = "im:edit", onFocus = {}) { onEdit() }
+            Row_(editLabel, false, id = "im:edit", onFocus = {}) { onEdit() }
             Row_("✎ $renameLabel", false, id = "im:rename", onFocus = {}) { problem = ""; renaming = true }
             if (canDelete) Row_(if (confirm) "🗑 OK again to delete" else "🗑 Delete", confirm, id = "im:del", onFocus = {}) { if (confirm) onDelete() else confirm = true }
             Row_("Cancel", false, id = "im:no", onFocus = {}) { onClose() }

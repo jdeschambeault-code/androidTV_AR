@@ -13,7 +13,8 @@ module.exports = {
       path: "app/starshine",
       conda: { path: "../../tools/jdk" },
       env: { ANDROID_HOME: "{{path.resolve(cwd, 'tools', 'android-sdk')}}", GRADLE_OPTS: "-Xmx2g -Dfile.encoding=UTF-8", ANDROID_SERIAL: POD },
-      message: [`${gradle} assembleDebug --no-daemon --console=plain`],
+      // Kotlin compiles in-process too: its separate daemon talks over a local socket and can hang the same way Gradle's did
+      message: [`${gradle} assembleDebug --no-daemon --console=plain -Pkotlin.compiler.execution.strategy=in-process`],
       // a failed build ends the script here, so the install step below can never put an old APK back
       on: [{ event: "/FAILURE: Build failed|BUILD FAILED/", break: true }]
     }

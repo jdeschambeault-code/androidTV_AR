@@ -3,7 +3,12 @@ package com.starshine.launcher
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 
 /**
@@ -21,6 +26,9 @@ class KeyService : AccessibilityService() {
         /** The app that long-press came from, when it wasn't Starshine. */
         @Volatile var readFrom: String? = null
         fun forget() { page = null; readFrom = null }
+        @Volatile private var instance: KeyService? = null
+        /** Lays the brightness shade over every app (see Brightness). Without the service, Starshine draws it itself. */
+        fun shade(level: Float) { instance?.let { s -> s.main.post { s.applyShade(level) } } }
         private val FULL = Regex("""https?://\S+""", RegexOption.IGNORE_CASE)
         private val SITE = Regex("""^[\w-]+(\.[\w-]+)*\.[a-z]{2,}(:\d+)?(/\S*)?$""", RegexOption.IGNORE_CASE)
         private val URL_ID = Regex("url|address|location|omnibox", RegexOption.IGNORE_CASE)
@@ -57,6 +65,39 @@ class KeyService : AccessibilityService() {
         }
         page = found
         android.util.Log.i("StarshineInput", "page read from $pkg: nodes=$nodes fields=$edits webviews=$webs found=${found != null}")
+    }
+
+    private val main = Handler(Looper.getMainLooper())
+    private var shadeView: View? = null
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        Brightness.load(this); Brightness.systemWide = true
+        applyShade(Brightness.level)
+    }
+
+    override fun onDestroy() {
+        shadeView?.let { v -> runCatching { getSystemService(WindowManager::class.java).removeView(v) } }; shadeView = null
+        instance = null; Brightness.systemWide = false
+        super.onDestroy()
+    }
+
+    /** A black, untouchable, unfocusable layer over everything on screen; removed at full brightness. */
+    private fun applyShade(level: Float) {
+        val wm = getSystemService(WindowManager::class.java)
+        val a = Brightness.alpha(level)
+        if (a <= 0.005f) { shadeView?.let { runCatching { wm.removeView(it) } }; shadeView = null; return }
+        val v = shadeView ?: View(this).also { v ->
+            val lp = WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT)
+            if (runCatching { wm.addView(v, lp) }.isFailure) { Brightness.systemWide = false; return }
+            shadeView = v
+        }
+        v.setBackgroundColor(android.graphics.Color.argb((a * 255).toInt(), 0, 0, 0))
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}

@@ -1,0 +1,37 @@
+{
+  "scenes": [
+    {
+      "name": "Aurora world",
+      "group": "Downloaded",
+      "mode": 1,
+      "layers": [
+        { "id": 1, "type": "Camera", "v": { "z": 10, "y": 2, "orbit": 2.5 } },
+        { "id": 2, "type": "Stars", "v": { "detail": 0.7, "hue": 200, "sat": 0.3 } },
+        { "id": 3, "type": "Planet", "v": { "scale": 2.2, "hue": 160, "sat": 0.6, "spin": 0.01 } },
+        { "id": 4, "type": "Nebula cloud", "v": { "z": -12, "y": 3, "scale": 2, "hue": 140, "opacity": 0.6 } },
+        { "id": 5, "type": "Sun", "v": { "x": -18, "y": 5, "z": -20, "scale": 2.5, "hue": 200, "sat": 0.4, "flare": 0.5 } }
+      ]
+    }
+  ],
+  "moods": [
+    {
+      "name": "Night rain bells",
+      "layers": [
+        { "id": 1, "kind": "Rain", "v": { "level": 0.5 } },
+        { "id": 2, "kind": "Tibetan bells", "v": { "pitch": 196, "every": 30, "level": 0.25, "space": 1.6 } },
+        { "id": 3, "kind": "Tone", "v": { "carrier": 120, "beat": 4, "level": 0.15, "wander": 0.5 } }
+      ]
+    }
+  ],
+  "journeys": [
+    {
+      "name": "Twilight drift",
+      "loop": true,
+      "steps": [
+        { "scene": "Candle", "audio": "Night rain bells", "minutes": 4, "blend": 25, "transition": 1, "lead": -1, "offset": 0 },
+        { "scene": "Aurora world", "audio": "Theta drift", "minutes": 6, "blend": 30, "transition": 2, "lead": -1, "offset": 0 },
+        { "scene": "Star temple", "audio": "Deep stillness", "minutes": 6, "blend": 30, "transition": 0, "lead": -1, "offset": 0 }
+      ]
+    }
+  ]
+}

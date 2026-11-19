@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "id": "twilight",
+      "name": "Twilight pack",
+      "description": "A 3D aurora world, a rain-and-bells mood, and a 3-step evening journey that uses them.",
+      "version": 1,
+      "url": "https://raw.githubusercontent.com/jdeschambeault-code/Rokit-TV-Toolkit/main/packs/twilight.json"
+    }
+  ]
+}

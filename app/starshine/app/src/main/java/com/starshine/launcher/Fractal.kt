@@ -119,7 +119,7 @@ void main() {
   vec2 z = julia ? c : vec2(0.0); vec2 k = julia ? JC : c; vec2 prev = vec2(0.0);
   int maxi = int(MAXI);
   float it = 0.0; float esc = 0.0;
-  for (int i = 0; i < 200; i++) {
+  for (int i = 0; i < 128; i++) {
     if (i >= maxi) break;
     vec2 w = z;
     if (f == 1) w = abs(z); else if (f == 2) w = vec2(z.x, -z.y); else if (f == 5) w = vec2(z.x, -abs(z.y));
@@ -213,9 +213,14 @@ void main() {
   vec2 z = julia ? c : vec2(0.0);
   vec2 k = julia ? JC : c;
   vec2 prev = vec2(0.0);
-  int maxi = int(48.0 + DEN * 352.0);
+  int maxi = int(32.0 + DEN * 200.0);
   float it = 0.0; float esc = 0.0;
-  for (int i = 0; i < 400; i++) {
+  // the classic set's main cardioid and bulb are inside: known at once, without running every iteration
+  if (f == 0 && p == 2 && !julia) {
+    float qx = c.x - 0.25; float q = qx * qx + c.y * c.y;
+    if (q * (q + qx) < 0.25 * c.y * c.y || (c.x + 1.0) * (c.x + 1.0) + c.y * c.y < 0.0625) maxi = 0;
+  }
+  for (int i = 0; i < 232; i++) {
     if (i >= maxi) break;
     vec2 w = z;
     if (f == 1) w = abs(z);
@@ -271,6 +276,17 @@ object RenderFx {
     val DEFAULTS: Map<String, Float> = ALL.associate { it.key to it.def }
     /** Any effect that changes the picture: when none is set, the scene draws straight to the screen as before. */
     private val EFFECTS = listOf(BLOOM, GLARE, FLARE, MOTION, DOF, CHROMA, DISTORT, VIGNETTE, GRAIN, SHARPEN, EXPOSURE, CONTRAST, SAT, TEMP, GAMMA)
-    fun active(s: BgScene) = EFFECTS.any { kotlin.math.abs(s.fx(it.key) - it.def) > 0.001f }
-    fun summary(s: BgScene): String = EFFECTS.filter { kotlin.math.abs(s.fx(it.key) - it.def) > 0.001f }.joinToString(", ") { it.label.lowercase() }.ifEmpty { "none" }
+    fun get(fx: Map<String, Float>, k: String): Float = fx[k] ?: DEFAULTS[k] ?: 0f
+
+    /** A saved look: a name and the effect values that differ from neutral. */
+    data class Look(val name: String, val fx: Map<String, Float>)
+    val BUILT_IN_LOOKS = listOf(
+        Look("Cinematic", mapOf("bloom" to 0.6f, "bloomT" to 0.6f, "glare" to 0.3f, "vignette" to 0.5f, "grain" to 0.12f, "contrast" to 1.1f, "temp" to 0.1f, "motion" to 0.2f)),
+        Look("Dreamy glow", mapOf("bloom" to 1.4f, "bloomT" to 0.35f, "dof" to 0.5f, "focusR" to 0.45f, "fxSat" to 1.2f, "chroma" to 0.3f, "temp" to 0.2f, "flare" to 0.4f)),
+        Look("Retro film", mapOf("grain" to 0.5f, "vignette" to 0.8f, "distort" to 0.2f, "chroma" to 0.6f, "contrast" to 1.2f, "fxSat" to 0.7f, "temp" to 0.25f, "gamma" to 1.1f))
+    )
+    /** Same look, whatever order or neutral values were stored. */
+    fun same(a: Map<String, Float>, b: Map<String, Float>) = ALL.all { kotlin.math.abs(get(a, it.key) - get(b, it.key)) < 0.001f }
+    fun active(fx: Map<String, Float>) = EFFECTS.any { kotlin.math.abs(get(fx, it.key) - it.def) > 0.001f }
+    fun summary(fx: Map<String, Float>): String = EFFECTS.filter { kotlin.math.abs(get(fx, it.key) - it.def) > 0.001f }.joinToString(", ") { it.label.lowercase() }.ifEmpty { "none" }
 }

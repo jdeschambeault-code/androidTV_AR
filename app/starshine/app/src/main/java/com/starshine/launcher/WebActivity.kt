@@ -227,7 +227,10 @@ class WebActivity : ComponentActivity() {
                 @SuppressLint("WebViewClientOnReceivedSslError")
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                     val host = Uri.parse(error.url).host ?: ""
-                    if (BuildConfig.PRIVATE_DOMAIN.isNotEmpty() && host.endsWith(BuildConfig.PRIVATE_DOMAIN)) handler.proceed()
+                    // your own servers: the private domain, and the hosts of your web tiles (e.g. Proxmox on its LAN address,
+                    // which only has a self-signed certificate). Every other site with a bad certificate stays blocked.
+                    val ownTile = BuildConfig.WEB_TILES.split(";").mapNotNull { t -> t.substringAfter('|', "").takeIf { it.isNotEmpty() }?.let { Uri.parse(it).host } }.contains(host)
+                    if ((BuildConfig.PRIVATE_DOMAIN.isNotEmpty() && host.endsWith(BuildConfig.PRIVATE_DOMAIN)) || ownTile) handler.proceed()
                     else {
                         handler.cancel()
                         if (error.url == view.url) { failed = true; showBanner("Blocked: this site's security certificate can't be trusted") }

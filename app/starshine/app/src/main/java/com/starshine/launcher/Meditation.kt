@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -25,8 +26,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -55,8 +60,11 @@ import kotlin.math.sin
 
 /** The classic frequency generator (wave shapes, isochronic pulses, sweeps, noise bed, didgeridoo) as one layer. */
 const val GENERATOR_KIND = "Frequency generator"
+/** A drum and bass beat, made live: for testing sound reactions, and for moods with a pulse. */
+const val DNB_KIND = "DnB beat"
+private val KICKS = intArrayOf(0, 10); private val SNARES = intArrayOf(4, 12); private val GHOSTS = intArrayOf(7, 14)
 val INSTRUMENT_KINDS = listOf("Singing bowl", "Tibetan bells", "Xylophone", "Chimes", "Temple gong", "Tanpura", "Handpan", "Kalimba", "Frame drum")
-val AUDIO_KINDS = listOf("Tone", GENERATOR_KIND, "Noise", "Didgeridoo") + INSTRUMENT_KINDS + listOf("Rain", "Ocean")
+val AUDIO_KINDS = listOf("Tone", GENERATOR_KIND, "Noise", "Didgeridoo") + INSTRUMENT_KINDS + listOf(DNB_KIND, "Rain", "Ocean")
 
 private fun mood(name: String, vararg layers: Pair<String, Map<String, Float>>) =
     AudioStack(name, layers.mapIndexed { i, (k, v) -> AudioLayer(i + 1, k, v) })
@@ -131,6 +139,7 @@ object AudioMix {
         var didge: Didgeridoo? = null; var synth: AmbientSynth? = null
         var b0 = 0f; var b1 = 0f; var b2 = 0f; var c0 = 0f; var c1 = 0f; var c2 = 0f
         var gl = 0.0; var gr = 0.0; var gIso = 0.0; var gOn = 1f
+        var kp = 0.0; var bp = 0.0; var nPrev = 0f
     }
 
     /** The generator's wave shapes, read from the sine table for the sine. */
@@ -181,7 +190,7 @@ object AudioMix {
             val track = AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                 .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                .setBufferSizeInBytes(maxOf(min, 88200)).build()   // half a second in hand, so a busy moment can't interrupt the sound
+                .setBufferSizeInBytes(maxOf(min, 35280)).build()   // 0.2 s in hand: enough for a busy moment, short enough that changes are heard at once (0.5 s made every change lag)
             track.play()
             val n = 1024; val l = FloatArray(n); val r = FloatArray(n); val vl = FloatArray(n); val vr = FloatArray(n); val pcm = ShortArray(n * 2)
             var master = 0f
@@ -211,7 +220,7 @@ object AudioMix {
                     pcm[i * 2 + 1] = (AmbientSynth.limit(r[i]) * master * 32767f).toInt().toShort()
                 }
                 val t1 = System.nanoTime()
-                track.write(pcm, 0, pcm.size)
+                track.setVolume(Sound.gain); track.write(pcm, 0, pcm.size)
                 written += n
                 if (AudioProbe.active) AudioProbe.block(t1 - t0, System.nanoTime() - t1, list.size, pcm, track.underrunCount, (written - track.playbackHeadPosition) * 1000f / RATE)
                 if (leaving && master <= 0f) break
@@ -270,6 +279,36 @@ object AudioMix {
                 val t = Tone(didge = true, didgePitch = a["note"], didgeMouth = a["mouth"], didgeRate = a["mouthRate"], didgeBreath = a["breath"])
                 for (i in 0 until n) { d.next(t); l[i] = d.l * 1.5f; r[i] = d.r * 1.5f }
             }
+            DNB_KIND -> {
+                // drum and bass at 174 BPM, made live: a kick on 1 and the "and" of 3, snares on 2 and 4 with ghost notes,
+                // hats on every sixteenth, and a sub bass that ducks under the kick. One bar is 16 sixteenths.
+                val bpm = (174f * a["speed"].coerceIn(0.25f, 2f)).toDouble()
+                val stepLen = 60.0 / bpm / 4.0
+                for (i in 0 until n) {
+                    val t = v.clock + i * dt
+                    val pos = t / stepLen; val s = Math.floorMod(pos.toLong(), 16L).toInt(); val ts = (pos - Math.floor(pos)) * stepLen
+                    fun since(steps: IntArray): Double { val last = steps.lastOrNull { it <= s } ?: (steps.last() - 16); return ts + (s - last) * stepLen }
+                    val tk = since(KICKS); val tn = since(SNARES); val tg = since(GHOSTS)
+                    // kick: a sine that drops from about 170 Hz to 50 Hz
+                    v.kp += (50.0 + 120.0 * Math.exp(-tk * 30.0)) / RATE
+                    val kick = (Math.sin(2 * PI * v.kp) * Math.exp(-tk * 7.0)).toFloat() * 0.9f
+                    // snare: a noise burst and a short tone; ghost notes are the same, much softer
+                    val w = noise()
+                    val snare = (w * Math.exp(-tn * 18.0) * 0.5 + Math.sin(2 * PI * 190.0 * tn) * Math.exp(-tn * 25.0) * 0.3).toFloat() +
+                        (w * Math.exp(-tg * 22.0) * 0.14).toFloat()
+                    // hats: the bright part of noise, ticking on each sixteenth, louder on the even ones
+                    val hiss = w - v.nPrev; v.nPrev = w
+                    val hat = hiss * Math.exp(-ts * 60.0).toFloat() * (if (s % 2 == 0) 0.22f else 0.1f)
+                    // sub bass: A for the first half of the bar, G for the second, pushed down by the kick
+                    v.bp += (if (s < 8) 55.0 else 49.0) / RATE
+                    val bass = (Math.sin(2 * PI * v.bp) * 0.8 + Math.sin(2 * PI * v.bp * 1.005) * 0.2).toFloat() * 0.3f * (1f - Math.exp(-tk * 12.0).toFloat())
+                    val mono = kick + snare + bass
+                    l[i] = (mono + hat * 0.7f) * 0.7f; r[i] = (mono + hat * 1.3f) * 0.7f
+                }
+                v.kp -= Math.floor(v.kp); v.bp -= Math.floor(v.bp)
+                v.clock += n * dt
+                AudioBands.toneBeat = (bpm / 60.0).toFloat()
+            }
             GENERATOR_KIND -> {
                 // the classic generator, sample by sample: L = carrier - beat/2, R = carrier + beat/2, a beat that can sweep,
                 // an isochronic pulse, a 2nd harmonic, a pink-noise bed and an optional didgeridoo
@@ -321,9 +360,10 @@ data class JourneyStep(val scene: String, val audio: String = "", val minutes: F
     companion object { fun fromJson(o: JSONObject) = JourneyStep(o.getString("scene"), o.optString("audio", ""), o.optDouble("minutes", 3.0).toFloat(), o.optDouble("blend", 10.0).toFloat(),
         o.optInt("transition", 0), o.optInt("lead", -1), o.optDouble("offset", 0.0).toFloat()) }
 }
-data class Journey(val name: String, val steps: List<JourneyStep>) {
-    fun toJson(): JSONObject = JSONObject().put("name", name).put("steps", JSONArray().also { a -> steps.forEach { a.put(it.toJson()) } })
-    companion object { fun fromJson(o: JSONObject): Journey { val a = o.getJSONArray("steps"); return Journey(o.getString("name"), (0 until a.length()).map { JourneyStep.fromJson(a.getJSONObject(it)) }) } }
+/** [loop]: after the last step it blends back into the first, using the last step's transition. On unless switched off. */
+data class Journey(val name: String, val steps: List<JourneyStep>, val loop: Boolean = true) {
+    fun toJson(): JSONObject = JSONObject().put("name", name).put("loop", loop).put("steps", JSONArray().also { a -> steps.forEach { a.put(it.toJson()) } })
+    companion object { fun fromJson(o: JSONObject): Journey { val a = o.getJSONArray("steps"); return Journey(o.getString("name"), (0 until a.length()).map { JourneyStep.fromJson(a.getJSONObject(it)) }, o.optBoolean("loop", true)) } }
 }
 
 object Med {
@@ -355,10 +395,14 @@ object Med {
     var focusStep by mutableIntStateOf(0)
     /** The journey picked in the tab. Kept here so it's still selected after leaving the tab and coming back. */
     val journeyPick = mutableStateOf("")
+    /** Meditation tab layout: split (journey presets in their own column on the right) or classic (the earlier single list, kept to go back to). */
+    var classicLayout by mutableStateOf(false); private set
+    fun setClassic(ctx: Context, v: Boolean) { classicLayout = v; sp(ctx).edit().putBoolean("classicLayout", v).apply() }
     private var loaded = false
     private fun sp(ctx: Context) = ctx.getSharedPreferences("starshine_med", Context.MODE_PRIVATE)
 
     fun load(ctx: Context) {
+        classicLayout = sp(ctx).getBoolean("classicLayout", false)
         MoodIcons.load(ctx)
         if (loaded) return
         loaded = true
@@ -391,6 +435,26 @@ object Med {
     fun putStack(ctx: Context, s: AudioStack) { stacks = if (stacks.any { it.name == s.name }) stacks.map { if (it.name == s.name) s else it } else stacks + s; saveStacks(ctx) }
     fun newName(base: String, taken: (String) -> Boolean): String { var i = 1; while (taken("$base $i")) i++; return "$base $i" }
 
+    /**
+     * A mood in the same vibe as a scene, for when a journey has no sound of its own: its name, then its group, then a calm
+     * default. Only moods that exist are chosen.
+     */
+    fun vibeFor(sceneName: String): AudioStack? {
+        val scene = Bg2.pristine(sceneName)
+        val words = (sceneName + " " + (scene?.group ?: "") + " " + scene?.layers.orEmpty().joinToString(" ") { it.type }).lowercase()
+        val wishes = listOf(
+            listOf("water", "ocean", "sea", "bioluminescent") to listOf("Ocean breath", "Ocean"),
+            listOf("rain", "cloud", "air") to listOf("Rain sanctuary", "Zen garden", "Rain"),
+            listOf("fire", "candle", "sun", "flare") to listOf("Fire circle", "Alpha calm"),
+            listOf("earth", "globe", "mountain") to listOf("Outback dreaming", "Himalayan temple"),
+            listOf("temple", "metatron", "flower", "seed", "sacred", "mandala", "geometry") to listOf("Sound bath", "Himalayan temple"),
+            listOf("star", "galaxy", "nebula", "space", "warp", "planet", "3d scenes", "solar") to listOf("Theta drift", "Deep stillness"),
+            listOf("light", "eye", "iris", "hologram") to listOf("Alpha calm", "Deep stillness")
+        )
+        val wanted = wishes.filter { (keys, _) -> keys.any { words.contains(it) } }.flatMap { it.second } + listOf("Deep stillness", "Sound bath")
+        return wanted.firstNotNullOfOrNull { n -> stacks.firstOrNull { it.name == n } } ?: stacks.firstOrNull { it.layers.isNotEmpty() }
+    }
+
     private var idBase = 100
     private fun fresh(scene: BgScene): BgScene {
         idBase += 100
@@ -405,26 +469,55 @@ object Med {
      * before the clip's end, and both clips keep running throughout. [show] puts a scene on the real background.
      */
     suspend fun run(ctx: Context, j: Journey, show: (BgScene) -> Unit) {
+        Sound.userOff = false
         var i = 0
-        suspend fun waitFor(seconds: Float) {
+        var round = 0
+        // the sound never stops during a journey: a step without its own keeps the last one, and with nothing at all
+        // playing, a mood that suits the scene starts
+        var sound: AudioStack? = null
+        fun keepSound(st: JourneyStep, blend: Float) {
+            if (paused || Sound.userOff || Sound.current.isNotEmpty()) return
+            val a = sound ?: vibeFor(st.scene) ?: return
+            sound = a; AudioProbe.event("no sound playing: ${a.name} starts"); Sound.playStack(ctx, a, blend, explicit = false)
+        }
+        // the next step's scene, prepared a few seconds ahead (fresh ids included) so its transition starts with nothing left to build
+        var ready: Pair<Int, BgScene>? = null
+        fun prepareNext() {
+            val ni = if (i + 1 < j.steps.size) i + 1 else if (j.loop) 0 else return
+            if (ready?.first == ni) return
+            Bg2.pristine(j.steps[ni].scene)?.let { b -> val f = fresh(b); ready = ni to f; Bg2.warm = f; AudioProbe.event("step ${ni + 1}: ${f.name} prepared ahead") }
+        }
+        suspend fun waitFor(seconds: Float, st: JourneyStep) {
             val skipAt = skip
             var left = seconds
-            while (left > 0f && playing === j && skip == skipAt) { delay(250); if (!paused) { left -= 0.25f; remaining = left } }
+            while (left > 0f && playing === j && skip == skipAt) {
+                delay(250)
+                if (!paused) { left -= 0.25f; remaining = left; keepSound(st, 3f) }
+                if (left <= PREPARE_SEC) prepareNext()
+            }
         }
         while (i < j.steps.size && playing === j) {
             val s = j.steps[i]; stepIndex = i
-            val nextBlend = j.steps.getOrNull(i + 1)?.blendSec ?: 0f
+            // a step's transition is the way OUT of it, into the next step. The journey itself starts straight on its first
+            // scene, whatever was on screen before; when it loops, the last step's transition leads back into the first.
+            val into = j.steps.getOrNull(i - 1) ?: if (round > 0) j.steps.last() else null
+            val blendIn = into?.blendSec ?: 0f
+            val blendOut = if (i < j.steps.lastIndex || j.loop) s.blendSec else 0f
             Bg2.pristine(s.scene)?.let { base ->
-                val scene = fresh(base)
-                Bg2.blendMode = s.transition.coerceIn(0, TRANSITIONS.lastIndex)
-                Bg2.blendLead = scene.layers.getOrNull(s.lead)?.id ?: -1
-                Bg2.blendOffset = s.offset
+                // the copy prepared ahead when there is one: the renderer has already built it
+                val scene = ready?.takeIf { it.first == i }?.second ?: fresh(base)
+                ready = null
+                Bg2.blendMode = (into?.transition ?: 0).coerceIn(0, TRANSITIONS.lastIndex)
+                Bg2.blendLead = into?.let { scene.layers.getOrNull(it.lead)?.id } ?: -1
+                Bg2.blendOffset = into?.offset ?: 0f
                 Bg2.blendMix = 0f
-                Bg2.blendFrom = if (Bg2.applied && s.blendSec > 0f) Bg2.current else null
-                AudioProbe.event("step ${i + 1}: ${s.scene}, ${scene.layers.size} layers, transition of ${s.blendSec} s starts" + if (Bg2.blendFrom != null) ", from ${Bg2.blendFrom?.layers?.size} layers" else "")
+                Bg2.blendFrom = if (into != null && Bg2.applied && blendIn > 0f) Bg2.current else null
+                AudioProbe.event("step ${i + 1}: ${s.scene}, ${scene.layers.size} layers, transition of $blendIn s starts" + if (Bg2.blendFrom != null) ", from ${Bg2.blendFrom?.layers?.size} layers" else "")
                 show(scene)
-                stacks.firstOrNull { it.name == s.audio }?.let { Sound.playStack(ctx, it, s.blendSec) }
-                val total = (s.blendSec * 1000).toLong().coerceAtLeast(1)
+                val own = stacks.firstOrNull { it.name == s.audio }
+                if (own != null && Sound.userOff) sound = own
+                else if (own != null) { sound = own; Sound.playStack(ctx, own, if (into == null) 1f else blendIn, explicit = false) } else keepSound(s, if (into == null) 1f else blendIn.coerceAtLeast(1f))
+                val total = (blendIn * 1000).toLong().coerceAtLeast(1)
                 var done = 0L; var last = System.currentTimeMillis()
                 while (done < total && playing === j) {
                     delay(33)
@@ -433,15 +526,22 @@ object Med {
                     last = now
                     Bg2.blendMix = (done.toFloat() / total).coerceIn(0f, 1f)
                 }
-                Bg2.blendFrom = null; Bg2.blendMix = 1f
+                Bg2.blendFrom = null; Bg2.blendMix = 1f; Bg2.warm = null
                 AudioProbe.event("step ${i + 1}: transition ended")
             }
             // half of this step's transition and half of the next one fall inside this step's time
-            waitFor((s.minutes * 60f - s.blendSec / 2f - nextBlend / 2f).coerceAtLeast(0f))
+            waitFor((s.minutes * 60f - blendIn / 2f - blendOut / 2f).coerceAtLeast(0f), s)
             i++
+            if (i == j.steps.size && j.loop && playing === j) { i = 0; round++; AudioProbe.event("journey loops: round ${round + 1}") }
         }
+        AudioProbe.event("journey ended on ${Bg2.current.name}")
+        android.util.Log.i("StarshineMed", "journey ${j.name} ended on ${Bg2.current.name}")
+        Bg2.warm = null
         if (playing === j) { playing = null; Sound.stop() }
     }
+
+    /** Seconds before a step ends that the next step's scene is prepared. */
+    private const val PREPARE_SEC = 4f
 }
 
 /* ---------------- planner ---------------- */
@@ -453,14 +553,15 @@ private fun <T> cycle(l: List<T>, cur: T, d: Int): T { val i = l.indexOf(cur).co
 @Composable
 private fun StepPicker(scenes: Boolean, current: String, onPick: (String) -> Unit, onClose: () -> Unit) {
     BackHandler { onClose() }
+    val ctx = LocalContext.current
     val prefix = if (scenes) "md:ps:" else "md:pa:"
     LaunchedEffect(Unit) { delay(80); FocusMem.restoreSoon(if (current.isEmpty() && !scenes) "row:md:pa:keep" else prefix + current) }
     var hint by remember { mutableStateOf("") }
     Text(if (scenes) "CHOOSE A SCENE" else "CHOOSE A MOOD", color = CYAN, fontSize = 11.sp, letterSpacing = 1.2.sp, maxLines = 1)
     Text(hint.ifEmpty { "OK = use it · Back = keep " + current.ifEmpty { "the same sound" } }, color = DIM, fontSize = 9.sp, maxLines = 1, modifier = Modifier.padding(bottom = 4.dp))
     LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (scenes) SCENE_GROUPS.forEach { g ->
-            val list = if (g == MY_SCENES) Bg2.mine else BUILT_IN_SCENES.filter { it.group == g }
+        if (scenes) (SCENE_GROUPS + SPACE_GROUP + DOWNLOADED).forEach { g ->
+            val list = when (g) { MY_SCENES -> Bg2.mine; DOWNLOADED -> Packs.scenes; else -> BUILT_IN_SCENES.filter { it.group == g } }
             if (list.isNotEmpty()) {
                 item(key = "psh:$g") { Header(g) }
                 items(list.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
@@ -475,28 +576,43 @@ private fun StepPicker(scenes: Boolean, current: String, onPick: (String) -> Uni
             items(Med.stacks.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
                 val row = Med.stacks.map { it.name }.chunked(ICON_COLUMNS)[k]
                 IconRow(row, count = { n -> if (n == current) 1 else 0 }, idOf = { prefix + it }, height = 36, label = { it },
-                    onHint = { hint = it }, onPress = { onPick(it) }) { n, c, m -> MoodIcon(Med.stacks.firstOrNull { it.name == n }, c, m) }
+                    onHint = { n -> hint = n; if (n.isNotEmpty() && Med.playing == null) Med.stacks.firstOrNull { it.name == n }?.let { if (Sound.current != it.name) Sound.playStack(ctx, it, 0.4f, explicit = false) } },
+                    onPress = { onPick(it) }) { n, c, m -> MoodIcon(Med.stacks.firstOrNull { it.name == n }, c, m) }
             }
         }
     }
 }
 
 @Composable
-fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> Unit) {
+fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> Unit) =
+    MeditationLayout(onPlay, onStop, onAudio, split = !Med.classicLayout)
+
+/**
+ * The Meditation tab. Split (default): building and managing the selected journey on the left, every journey preset in a
+ * column on the right (OK = select, hold OK = play, loop, audio test, manage, rename, delete). Classic: the earlier single
+ * list, preset grids included, kept as it was so it can be switched back to (Layout row).
+ */
+@Composable
+private fun MeditationLayout(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> Unit, split: Boolean) {
     val ctx = LocalContext.current
     var name by Med.journeyPick
     var stepNo by remember { mutableIntStateOf(-1) }
     var picker by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf(false) }
-    val j = Med.journeys.firstOrNull { it.name == name } ?: Med.journeys.firstOrNull()
+    // your journeys first, then the ready-made and downloaded ones: editing one of those keeps your own copy
+    val j = (Med.journeys + BUILT_IN_JOURNEYS + Packs.journeys).firstOrNull { it.name == name } ?: Med.journeys.firstOrNull() ?: BUILT_IN_JOURNEYS.first()
+    val isMine = Med.journeys.any { it.name == j.name }
+    var getMore by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
     Med.planning = j
     Med.planStep = stepNo
     if (stepNo >= 0) Med.focusStep = stepNo
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { Med.planning = null } }
     val scenes = remember(Bg2.mine) { Bg2.mine.map { it.name } + BUILT_IN_SCENES.map { it.name } }
-    fun preview(s: JourneyStep?) { s?.let { st -> Bg2.pristine(st.scene)?.let { Bg2.preview = it; lastBrowsedScene = it.name } } }
-    fun update(steps: List<JourneyStep>) { j?.let { Med.putJourney(ctx, it.copy(steps = steps)) } }
+    // browsing a step shows its scene and plays its sound (not while a journey is playing: that one keeps its own)
+    fun hear(audio: String) { if (Med.playing == null) Med.stacks.firstOrNull { it.name == audio }?.let { if (Sound.current != it.name) Sound.playStack(ctx, it, 0.6f, explicit = false) } }
+    fun preview(s: JourneyStep?) { s?.let { st -> Bg2.pristine(st.scene)?.let { Bg2.preview = it; lastBrowsedScene = it.name }; hear(st.audio) } }
+    fun update(steps: List<JourneyStep>, loop: Boolean? = null) { j?.let { Med.putJourney(ctx, it.copy(steps = steps, loop = loop ?: it.loop)) } }
     // the monitor follows the selected journey: its first step, or an empty picture if it has no steps yet
     LaunchedEffect(j?.name) {
         delay(50)   // after the tab's own reset of the preview when entering it
@@ -514,7 +630,29 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
         delay(80)
         if (stepNo < 0 && backTo.isNotEmpty()) { FocusMem.restoreSoon(backTo); backTo = "" } else runCatching { first.requestFocus() }
     }
-    Panel(Modifier.padding(start = 24.dp, bottom = 8.dp).width(256.dp).fillMaxHeight().stageBeside()) {
+    if (getMore) { Panel(Modifier.padding(start = 24.dp, bottom = 8.dp).width(256.dp).fillMaxHeight().stageBeside()) { PackBrowser { getMore = false; FocusMem.scope?.launch { delay(80); FocusMem.restoreSoon("row:md:more") } } }; return }
+    // split: the presets' column keeps the right edge, so the preview under the monitor shrinks to fit between the two
+    // (the column reports where it really starts, see stageRight; it's forgotten when the column goes)
+    if (split) androidx.compose.runtime.DisposableEffect(Unit) { onDispose { Stage.rightEdge = 0f } }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    // the long-press menu shows its journey in the preview window (first step: scene and sound); closing it goes back to
+    // the selected journey. Not while a journey is playing: that one keeps the screen
+    var menuShown by remember { mutableStateOf(false) }
+    LaunchedEffect(menuFor) {
+        if (Med.playing != null) return@LaunchedEffect
+        val t = menuFor?.let { n -> (Med.journeys + BUILT_IN_JOURNEYS + Packs.journeys).firstOrNull { it.name == n } }
+        if (t != null) { menuShown = true; t.steps.firstOrNull()?.let { preview(it) } ?: run { Bg2.preview = BgScene(t.name, "", emptyList()); lastBrowsedScene = t.name } }
+        else if (menuShown) { menuShown = false; j.steps.firstOrNull()?.let { preview(it) } }
+    }
+    Box(Modifier.fillMaxSize()) {
+    // → past the left menu goes to the selected journey in the column (rows that change a value with ← → keep their
+    // arrows: they use the key before focus moves), ← from the column comes back to Play
+    Panel(Modifier.padding(start = 24.dp, bottom = 8.dp).width(256.dp).fillMaxHeight().stageBeside()
+        // (a key handler, not focusProperties: the rows cancel sideways moves themselves)
+        .onPreviewKeyEvent { e ->
+            if (split && menuFor == null && M5.editing == null && e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight &&
+                FocusMem.current?.startsWith("adj:") != true) { FocusMem.restore("md:j:${j.name}"); true } else false
+        }) {
         val st = j?.steps?.getOrNull(stepNo)
         if (j != null && st != null) {
             Text("STEP ${stepNo + 1} · ${j.name}".uppercase(), color = CYAN, fontSize = 11.sp, letterSpacing = 1.2.sp, maxLines = 1)
@@ -529,24 +667,28 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
             else LoopColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 // ← → step through them one by one; a long press on OK opens all of them as icons
                 item { Box(Modifier.focusRequester(first)) { Adjust("Scene", st.scene, { val n = st.copy(scene = cycle(scenes, st.scene, -1)); set(n); preview(n) }, compact = true, onOk = { picker = "scene" }) { val n = st.copy(scene = cycle(scenes, st.scene, 1)); set(n); preview(n) } } }
-                item { Adjust("Audio", st.audio.ifEmpty { "keep playing" }, { set(st.copy(audio = cycle(audios, st.audio, -1))) }, compact = true, onOk = { picker = "audio" }) { set(st.copy(audio = cycle(audios, st.audio, 1))) } }
+                item { Adjust("Audio", st.audio.ifEmpty { "keep playing" }, { val n = st.copy(audio = cycle(audios, st.audio, -1)); set(n); hear(n.audio) }, compact = true, onOk = { picker = "audio" }) { val n = st.copy(audio = cycle(audios, st.audio, 1)); set(n); hear(n.audio) } }
                 item { Text((if (M5.editLock) "Hold OK" else "OK") + " on Scene or Audio shows them all", color = DIM, fontSize = 9.sp, modifier = Modifier.padding(start = 12.dp)) }
                 item { Adjust("Time", fmt(st.minutes) + " min", { set(st.copy(minutes = ((st.minutes - 0.1f) * 10f).let { Math.round(it) / 10f }.coerceAtLeast(0.1f))) }, compact = true) { set(st.copy(minutes = ((st.minutes + 0.1f) * 10f).let { Math.round(it) / 10f })) } }
-                item { Header(if (stepNo == 0) "Transition from your current background" else "Transition from the previous background") }
-                item { Adjust("Type", TRANSITIONS[st.transition.coerceIn(0, TRANSITIONS.lastIndex)], { set(st.copy(transition = (st.transition - 1 + TRANSITIONS.size) % TRANSITIONS.size)) }, compact = true) { set(st.copy(transition = (st.transition + 1) % TRANSITIONS.size)) } }
-                item { Adjust("Length", "${st.blendSec.toInt()} s", { set(st.copy(blendSec = (st.blendSec - 1f).coerceAtLeast(0f))) }, compact = true) { set(st.copy(blendSec = st.blendSec + 1f)) } }
-                item {
-                    val layers = Bg2.pristine(st.scene)?.layers ?: emptyList()
-                    val names = listOf("none") + layers.map { it.type.removePrefix(CLASSIC_PREFIX).removePrefix(LINES_PREFIX) }
-                    val at = (st.lead + 1).coerceIn(0, names.lastIndex)
-                    Adjust("Leads with layer", names[at], { set(st.copy(lead = (at - 1 + names.size) % names.size - 1)) }, compact = true) { set(st.copy(lead = (at + 1) % names.size - 1)) }
+                // looping, the last step leads back into the first
+                val next = j.steps.getOrNull(i + 1) ?: if (j.loop && j.steps.size > 1) j.steps.first() else null
+                if (next == null) item { Header("Last step: the journey ends here (loop is off)") }
+                else {
+                    item { Header("Transition into step ${if (i + 1 < j.steps.size) i + 2 else 1}: ${next.scene}") }
+                    item { Adjust("Type", TRANSITIONS[st.transition.coerceIn(0, TRANSITIONS.lastIndex)], { set(st.copy(transition = (st.transition - 1 + TRANSITIONS.size) % TRANSITIONS.size)) }, compact = true) { set(st.copy(transition = (st.transition + 1) % TRANSITIONS.size)) } }
+                    item { Adjust("Length", "${st.blendSec.toInt()} s", { set(st.copy(blendSec = (st.blendSec - 1f).coerceAtLeast(0f))) }, compact = true) { set(st.copy(blendSec = st.blendSec + 1f)) } }
+                    item {
+                        // the layer that leads belongs to the scene that's arriving
+                        val layers = Bg2.pristine(next.scene)?.layers ?: emptyList()
+                        val names = listOf("none") + layers.map { it.type.removePrefix(CLASSIC_PREFIX).removePrefix(LINES_PREFIX) }
+                        val at = (st.lead + 1).coerceIn(0, names.lastIndex)
+                        Adjust("Leads with layer", names[at], { set(st.copy(lead = (at - 1 + names.size) % names.size - 1)) }, compact = true) { set(st.copy(lead = (at + 1) % names.size - 1)) }
+                    }
+                    item { Adjust("Layer offset", "${(st.offset * 100).toInt()}%", { set(st.copy(offset = (st.offset - 0.1f).coerceAtLeast(0f))) }, compact = true) { set(st.copy(offset = (st.offset + 0.1f).coerceAtMost(1f))) } }
+                    item { Text("Mixes out of this step into the next one. Half of it plays before this step ends." +
+                        if (i == 0) " The journey starts straight on this step's scene." else "",
+                        color = DIM, fontSize = 9.sp, modifier = Modifier.padding(6.dp)) }
                 }
-                item { Adjust("Layer offset", "${(st.offset * 100).toInt()}%", { set(st.copy(offset = (st.offset - 0.1f).coerceAtLeast(0f))) }, compact = true) { set(st.copy(offset = (st.offset + 0.1f).coerceAtMost(1f))) } }
-                item { Text(
-                    (if (stepNo == 0) "Mixes out of the background on screen when you press play, into this step. A classic background or a file cuts straight in. "
-                    else "Mixes out of the previous background, into this step. Half of it plays before the previous step ends. ") +
-                        "It doesn't affect the next step: set that on the next step.",
-                    color = DIM, fontSize = 9.sp, modifier = Modifier.padding(6.dp)) }
                 item { Header("Step") }
                 item { Row_("↑ Move earlier", false, id = "md:up", onFocus = {}) { if (i > 0) { update(j.steps.toMutableList().apply { add(i - 1, removeAt(i)) }); stepNo = i - 1 } } }
                 item { Row_("↓ Move later", false, id = "md:down", onFocus = {}) { if (i < j.steps.lastIndex) { update(j.steps.toMutableList().apply { add(i + 1, removeAt(i)) }); stepNo = i + 1 } } }
@@ -562,13 +704,14 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
                     else Row_("▶ Play: " + (j?.name ?: "choose a journey"), false, id = "md:play", category = true, onFocus = {}) { if (j != null && j.steps.isNotEmpty()) onPlay(j) }
                 } }
                 // journeys as icons with their titles, like scenes and moods: OK selects one
-                item { Header("Journeys") }
-                items(Med.journeys.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
+                if (j != null) item { Adjust("Loop", if (j.loop) "on: starts again after the last step" else "off: ends after the last step", { update(j.steps, !j.loop) }, compact = true, onOk = { update(j.steps, !j.loop) }) { update(j.steps, !j.loop) } }
+                if (!split) item { Header("My journeys") }
+                if (!split) items(Med.journeys.map { it.name }.chunked(ICON_COLUMNS).size) { k ->
                     val row = Med.journeys.map { it.name }.chunked(ICON_COLUMNS)[k]
                     IconRow(row, count = { n -> if (n == j?.name) 1 else 0 }, idOf = { "md:j:$it" }, height = 36, label = { it }, onHint = {},
                         onPress = { n -> name = n }) { n, c, m -> SceneIcon(Med.journeys.firstOrNull { it.name == n }?.steps?.firstOrNull()?.let { Bg2.pristine(it.scene) }, c, m) }
                 }
-                if (j != null && now == null) item { Row_("🔬 Play it with the audio test", false, id = "md:test", onFocus = {}) { if (j.steps.isNotEmpty()) { AudioProbe.start(ctx, j.name); onPlay(j) } } }
+                if (!split && j != null && now == null) item { Row_("🔬 Play it with the audio test", false, id = "md:test", onFocus = {}) { if (j.steps.isNotEmpty()) { AudioProbe.start(ctx, j.name); onPlay(j) } } }
                 if (AudioProbe.summary.isNotEmpty()) item { Text("Audio test: " + AudioProbe.summary, color = AMBER, fontSize = 9.sp, modifier = Modifier.padding(6.dp)) }
                 if (j != null) {
                     item { Header("Steps · ${fmt(j.steps.sumOf { it.minutes.toDouble() }.toFloat())} min") }
@@ -580,13 +723,92 @@ fun MeditationTab(onPlay: (Journey) -> Unit, onStop: () -> Unit, onAudio: () -> 
                 item { Header("Manage") }
                 item { Row_("🎚 Build moods  ›", false, id = "md:audio", onFocus = {}) { onAudio() } }
                 item { Row_("＋ New journey", false, id = "md:new", onFocus = {}) { val n = Med.newName("Journey") { x -> Med.journeys.any { it.name == x } }; Med.putJourney(ctx, Journey(n, emptyList())); name = n } }
-                if (j != null) item { Row_(if (confirm) "🗑 OK again to delete" else "🗑 Delete this journey", confirm, id = "md:del", onFocus = {}) {
+                if (isMine) item { Row_(if (confirm) "🗑 OK again to delete" else "🗑 Delete this journey", confirm, id = "md:del", onFocus = {}) {
                     if (!confirm) confirm = true else { Med.journeys = Med.journeys.filter { it !== j }; Med.saveJourneys(ctx); confirm = false; name = Med.journeys.firstOrNull()?.name ?: "" }
                 } }
+                fun grid(title: String, list: List<Journey>, prefix: String) {
+                    if (list.isEmpty()) return
+                    item(key = "jh:$prefix") { Header(title) }
+                    items(list.map { it.name }.chunked(ICON_COLUMNS).size, key = { "jg:$prefix:$it" }) { k ->
+                        val row = list.map { it.name }.chunked(ICON_COLUMNS)[k]
+                        IconRow(row, count = { n -> if (n == j.name) 1 else 0 }, idOf = { "md:$prefix:$it" }, height = 36, label = { it }, onHint = {},
+                            onPress = { n -> name = n }) { n, c, m -> SceneIcon(list.firstOrNull { it.name == n }?.steps?.firstOrNull()?.let { Bg2.pristine(it.scene) }, c, m) }
+                    }
+                }
+                if (!split) {
+                    grid("Ready-made journeys", BUILT_IN_JOURNEYS.filter { b -> Med.journeys.none { it.name == b.name } }, "bj")
+                    grid("Downloaded journeys", Packs.journeys.filter { b -> Med.journeys.none { it.name == b.name } }, "dj")
+                    item { Row_("⬇ Get more journeys, scenes and moods  ›", false, id = "md:more", onFocus = {}) { getMore = true } }
+                }
+                // switch between this layout and the earlier one, any time
+                // switching rebuilds the list, so the selection is put back on this row (it fell to the HOME tab before)
+                item {
+                    fun flip() { Med.setClassic(ctx, split); FocusMem.scope?.launch { delay(150); FocusMem.restoreSoon("adj:Layout") } }
+                    Adjust("Layout", if (split) "presets on the right" else "classic (one list)", { flip() }, compact = true, onOk = { flip() }) { flip() }
+                }
             }
         }
     }
+
+    // ---- split layout: every journey preset in a column of its own on the right
+    if (split) Panel(Modifier.align(Alignment.TopEnd).padding(end = 16.dp, bottom = 8.dp).width(PRESET_COLUMN.dp).fillMaxHeight().stageRight()
+        // ← on the first icon of a row goes back to the left menu (Play, or Stop while one plays)
+        .onPreviewKeyEvent { e ->
+            val cur = FocusMem.current
+            if (menuFor == null && e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && cur != null && cur.startsWith("md:j:")) {
+                val n = cur.removePrefix("md:j:")
+                val lists = listOf(Med.journeys, BUILT_IN_JOURNEYS.filter { b -> Med.journeys.none { it.name == b.name } },
+                    Packs.journeys.filter { b -> Med.journeys.none { it.name == b.name } })
+                val first = lists.any { l -> l.indexOfFirst { it.name == n }.let { it >= 0 && it % 3 == 0 } }
+                if (first) { FocusMem.restore(if (Med.playing != null) "row:md:stop" else "row:md:play"); true } else false
+            } else if (cur == "row:md:more" && e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { FocusMem.restore("row:md:play"); true } else false
+        }) {
+        val target = menuFor?.let { n -> (Med.journeys + BUILT_IN_JOURNEYS + Packs.journeys).firstOrNull { it.name == n } }
+        if (target != null) {
+            val mine = Med.journeys.any { it.name == target.name }
+            fun close(focus: String = "md:j:${target.name}") { menuFor = null; FocusMem.scope?.launch { delay(80); FocusMem.restoreSoon(focus) } }
+            ItemMenu(target.name, if (mine) "Rename" else "Rename as my own copy", mine,
+                // Manage: the journey is selected and the selection moves to its steps, on the left
+                onEdit = { name = target.name; menuFor = null; FocusMem.scope?.launch { delay(120); FocusMem.restoreSoon(if (target.steps.isEmpty()) "row:md:add" else "row:md:st:0") } },
+                onRename = { n ->
+                    val t = n.trim()
+                    if (t.isEmpty() || (Med.journeys + BUILT_IN_JOURNEYS + Packs.journeys).any { it.name == t }) false
+                    else { if (mine) { Med.journeys = Med.journeys.map { if (it.name == target.name) it.copy(name = t) else it }; Med.saveJourneys(ctx) } else Med.putJourney(ctx, target.copy(name = t)); name = t; close("md:j:$t"); true }
+                },
+                onDelete = { Med.journeys = Med.journeys.filter { it.name != target.name }; Med.saveJourneys(ctx); if (name == target.name) name = Med.journeys.firstOrNull()?.name ?: ""; close("row:md:play") },
+                onClose = { close() },
+                actions = listOf(
+                    "▶ Play" to { name = target.name; menuFor = null; if (target.steps.isNotEmpty()) onPlay(target) },
+                    ("🔁 Loop: " + if (target.loop) "on (turn off)" else "off (turn on)") to { Med.putJourney(ctx, target.copy(loop = !target.loop)); name = target.name; close() },
+                    "🔬 Play it with the audio test" to { name = target.name; menuFor = null; if (target.steps.isNotEmpty()) { AudioProbe.start(ctx, target.name); onPlay(target) } }
+                ),
+                editLabel = "⚙ Manage: steps, timing, transitions")
+        } else {
+            Text("JOURNEYS", color = CYAN, fontSize = 11.sp, letterSpacing = 1.2.sp)
+            Text("OK = select · hold OK = play, loop, manage", color = DIM, fontSize = 9.sp, maxLines = 2, modifier = Modifier.padding(bottom = 4.dp))
+            LoopColumn(state = FocusMem.list("med:presets"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                fun group(title: String, list: List<Journey>, prefix: String) {
+                    if (list.isEmpty()) return
+                    item(key = "ph:$prefix") { Header(title) }
+                    items(list.map { it.name }.chunked(3).size, key = { "pg:$prefix:$it" }) { k ->
+                        val row = list.map { it.name }.chunked(3)[k]
+                        IconRow(row, count = { n -> if (n == j.name) 1 else 0 }, idOf = { "md:j:$it" }, height = 36, label = { it }, onHint = {},
+                            onHold = { n -> menuFor = n },
+                            onPress = { n -> name = n }) { n, c, m -> SceneIcon(list.firstOrNull { it.name == n }?.steps?.firstOrNull()?.let { Bg2.pristine(it.scene) }, c, m) }
+                    }
+                }
+                group("My journeys", Med.journeys, "mj")
+                group("Ready-made", BUILT_IN_JOURNEYS.filter { b -> Med.journeys.none { it.name == b.name } }, "bj")
+                group("Downloaded", Packs.journeys.filter { b -> Med.journeys.none { it.name == b.name } }, "dj")
+                item { Row_("⬇ Get more  ›", false, id = "md:more", onFocus = {}) { getMore = true } }
+            }
+        }
+    }
+    }
 }
+
+/** Width of the split layout's preset column, in the interface's dp. */
+private const val PRESET_COLUMN = 200f
 
 /** Under the monitor: the journey plotted in time, then the selected step's video layers, then its audio layers. */
 @Composable
@@ -608,7 +830,8 @@ fun JourneyTimeline(j: Journey) {
                 Text("${i + 1} " + s.scene, color = FG, fontSize = 8.sp, maxLines = 1)
                 Text(fmt(s.minutes) + " min", color = DIM, fontSize = 7.sp, maxLines = 1)
             }
-            val blendW = if (i > 0) full * (s.blendSec / 60f) / total else 0f
+            // the blend into this step was set on the step before it
+            val blendW = if (i > 0) full * (j.steps[i - 1].blendSec / 60f) / total else 0f
             if (blendW > 1f) androidx.compose.foundation.layout.Box(Modifier.offset((x - blendW / 2f).dp, 0.dp).width(blendW.dp).height(32.dp).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, c.copy(alpha = 0.55f), androidx.compose.ui.graphics.Color.Transparent))))
             x += w
         }

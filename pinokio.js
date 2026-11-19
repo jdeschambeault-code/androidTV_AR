@@ -31,6 +31,8 @@ module.exports = {
       { icon: "fa-brands fa-usb", text: "USB Driver Doctor", href: "usb.js" },
       { icon: "fa-solid fa-box-open", text: "Sideload APK", href: "sideload.js" },
       { icon: "fa-solid fa-film", text: "Send Video to Pod", href: "sendvideo.js" },
+      { icon: "fa-solid fa-photo-film", text: "Fix VLC Media Scan", href: "vlcfix.js" },
+      { icon: "fa-solid fa-mountain-sun", text: "Copy Landscape Backgrounds", href: "landscapes.js" },
       { icon: "fa-solid fa-store", text: "Install Recommended Apps", href: "apps.js" },
       { icon: "fa-solid fa-stethoscope", text: "Jellyfin Net Check", href: "netcheck.js" },
       { icon: "fa-solid fa-file-lines", text: "Jellyfin App Log", href: "jflog.js" },
@@ -45,6 +47,13 @@ module.exports = {
       info.exists("tools/android-sdk/build-tools")
         ? { icon: "fa-solid fa-hammer", text: info.running("build.js") ? "Building Starshine…" : "Build & Install Starshine", href: "build.js" }
         : { icon: "fa-solid fa-toolbox", text: info.running("build-setup.js") ? "Installing build tools…" : "Install APK Build Tools", href: "build-setup.js" },
+      // Samsung TV (Tizen): TV Hub, a minimal TV / Inputs / Apps / Settings screen (app/tizen-hub)
+      ...(info.exists("tools/tizen-studio/tools/certificate-manager")
+        ? [
+            { icon: "fa-solid fa-certificate", text: "Samsung TV: Certificate", href: "tizen-cert.js" },
+            { icon: "fa-solid fa-tv", text: info.running("tizen-deploy.js") ? "Installing TV Hub…" : "Samsung TV: Install TV Hub", href: "tizen-deploy.js" }
+          ]
+        : [{ icon: "fa-solid fa-tv", text: info.running("tizen-setup.js") ? "Installing Samsung TV tools…" : "Samsung TV: Install Tools", href: "tizen-setup.js" }]),
       help, preview, ...extra,
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
       { icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" }

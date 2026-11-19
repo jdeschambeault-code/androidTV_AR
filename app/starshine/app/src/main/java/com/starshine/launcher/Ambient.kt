@@ -62,7 +62,7 @@ object Ambient {
                     pcm[i * 2] = (AmbientSynth.limit(l[i]) * g * 32767f).toInt().toShort()
                     pcm[i * 2 + 1] = (AmbientSynth.limit(r[i]) * g * 32767f).toInt().toShort()
                 }
-                track.write(pcm, 0, pcm.size)
+                track.setVolume(Sound.gain); track.write(pcm, 0, pcm.size)
                 if (leaving && fade <= 0f) break
             }
             runCatching { track.stop(); track.release() }

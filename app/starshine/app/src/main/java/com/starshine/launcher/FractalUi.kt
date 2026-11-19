@@ -46,6 +46,7 @@ fun ColorMapEditor(current: Int, onPick: (Int) -> Unit, onClose: () -> Unit) {
     var confirm by remember { mutableStateOf(false) }
     BackHandler { if (editing >= 0) editing = -1 else onClose() }
     LaunchedEffect(editing) { delay(60); FocusMem.restoreSoon(if (editing >= 0) "row:cm:done" else "row:cm:new") }
+    androidx.compose.runtime.DisposableEffect(Unit) { Bg2.subPanel = true; onDispose { Bg2.subPanel = false } }
     val maps = Fractal.maps
     Text(if (editing >= 0) "EDIT COLOR MAP" else "COLOR MAPS", color = CYAN, fontSize = 11.sp, letterSpacing = 1.2.sp, maxLines = 1)
     Text(if (editing >= 0) "Five colours, looping · Back = the list" else "OK = use it · Back = layer settings", color = DIM, fontSize = 9.sp, maxLines = 1, modifier = Modifier.padding(bottom = 6.dp))

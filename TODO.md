@@ -14,7 +14,14 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
 5. **Render settings, global vs per scene** (agreed approach, not built yet): device settings (antialiasing, resolution, FPS) stay global; creative effects (bloom, grain, colour grade…) can be saved with a scene as its own "look" that overrides the global one while it plays.
 6. **Video landscape loops:** after downloading the clips into `recordings/bg-review/video/raw/`, run `makeloops.sh`, push them with **Landscape backgrounds**, and add video Landscape scenes.
 7. **Demo in Settings:** recordable, 15–30 s per section (2D/3D scenes, moods, Meditation builder, other features). Not started.
-8. **Remove the `browseTest` hook and the `StarshineLaunch` stack logging** once item 1 is solved, if they're no longer useful.
+8. **Same controls on every player card** (Quick settings player block, left-edge card, Home Now Playing card):
+   - Album art of the current track, ⏮ Back, ⏯ Play/Pause, ⏭ Forward.
+   - A drop-down to choose what plays, filled in this order of preference:
+     1. The player's library (playlists), where it agrees to share it. YouTube Music refuses Starshine (tested 2026-11-19); Spotify and others still to test with `--es browseTest <package>`.
+     2. Otherwise the session's current queue (Android's media queue): pick a track to jump to it.
+     3. Otherwise a "Choose in <app>" button that opens the app.
+   - Build it as one shared card component, so the three cards can't drift apart again.
+9. **Remove the `browseTest` hook and the `StarshineLaunch` stack logging** once item 1 is solved, if they're no longer useful.
 
 ## To test on the pod (built and installed, not yet checked on screen)
 

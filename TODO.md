@@ -4,16 +4,16 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
 
 ## Open: to do
 
-1. **YouTube Music returns to full screen after a while.** Starshine itself reopens the app (seen 4 times between 19:01 and 19:05), and the log doesn't show which part yet.
+1. **YouTube Music returns to full screen** (FIXED 2026-11-20, verify on the pod): Android blocked Starshine coming back in front (it needed "display over other apps", now granted by build.js); ▶ now first presses play like a headset button; the TV YouTube apps only play on screen, so they are left in front with a note. Starshine itself reopens the app (seen 4 times between 19:01 and 19:05), and the log doesn't show which part yet.
    - Suspect: the ▶ in Quick settings. YouTube Music refuses Starshine's remote commands, so ▶ opens the app, presses play and comes back; when the app starts slowly, it stays in front.
    - Next: read `recordings/ytm-front.txt` (a log watcher was left running) or the `StarshineLaunch` / `StarshinePlayer` log lines, then fix that path.
 2. **Publish the repo and release:** run `! /c/pinokio/bin/miniforge/Scripts/gh.exe auth login`, then make the repo public and create release v2.7.0 with `apks/release/starshine-2.7.0.apk`. That APK was built with `STARSHINE_PUBLIC=1`, so it carries no personal tiles or addresses.
    - Rebuild it first if code changed since. The release notes should mention the LeanKeyboard tip for the M5.
 3. **Landscape photos for public users:** they aren't in the repo (`recordings/` is ignored). Decide whether to commit them, since they're openly licensed (credits in ATTRIBUTION.md), or attach them to the release as a separate zip.
 4. **TV Streamer:** install the new build once it's online. It wasn't reachable at its usual address today.
-5. **Render settings, global vs per scene** (agreed approach, not built yet): device settings (antialiasing, resolution, FPS) stay global; creative effects (bloom, grain, colour grade…) can be saved with a scene as its own "look" that overrides the global one while it plays.
+5. **Render settings, global vs per scene** (BUILT and tested on the Streamer 2026-11-20): device settings (antialiasing, resolution, FPS) stay global; creative effects (bloom, grain, colour grade…) can be saved with a scene as its own "look" that overrides the global one while it plays.
 6. **Video landscape loops:** after downloading the clips into `recordings/bg-review/video/raw/`, run `makeloops.sh`, push them with **Landscape backgrounds**, and add video Landscape scenes.
-7. **Demo in Settings:** recordable, 15–30 s per section (2D/3D scenes, moods, Meditation builder, other features). Not started.
+7. **Demo in Settings** (BUILT 2026-11-20): Settings → About & exit → Demo; toolkit "Record the Demo Tour" (demo.js, `-- --serial=` for another device). Recorded on the Streamer: recordings/demo/. Landscapes section is skipped when the photos are not on the device.
 8. **Same controls on every player card** (BUILT 2026-11-20, see "To test"; installed on the TV Streamer, not yet on the pod) (Quick settings player block, left-edge card, Home Now Playing card):
    - Album art of the current track, ⏮ Back, ⏯ Play/Pause, ⏭ Forward.
    - A drop-down to choose what plays, filled in this order of preference:
@@ -21,7 +21,7 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
      2. Otherwise the session's current queue (Android's media queue): pick a track to jump to it.
      3. Otherwise a "Choose in <app>" button that opens the app.
    - Build it as one shared card component, so the three cards can't drift apart again.
-9. **Remove the `browseTest` hook and the `StarshineLaunch` stack logging** once item 1 is solved, if they're no longer useful.
+9. (DONE 2026-11-20) **Remove the `browseTest` hook and the `StarshineLaunch` stack logging** once item 1 is solved, if they're no longer useful.
 
 ## To test on the pod (built and installed, not yet checked on screen)
 

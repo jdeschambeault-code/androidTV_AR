@@ -382,8 +382,19 @@ private val GEN_GROUPS: List<Pair<String, (Generator) -> Boolean>> = listOf(
 @Composable
 fun RenderTab() {
     val ctx = LocalContext.current
-    val fx = Bg2.fx
-    fun put(k: String, v: Float) = Bg2.setFx(ctx, fx + (k to v))
+    // "every scene" edits the global effects; "this scene" edits the look saved with the scene on the monitor, which then
+    // replaces the global one while that scene plays. Antialiasing is a device setting and always stays global.
+    val scene = Bg2.preview.name
+    val own = Bg2.sceneLooks[scene]
+    var forScene by remember(scene) { mutableStateOf(own != null) }
+    val fx = if (forScene) Bg2.fxFor(scene) else Bg2.fx
+    fun set(m: Map<String, Float>) {
+        if (!forScene) { Bg2.setFx(ctx, m); return }
+        Bg2.setSceneLook(ctx, scene, m)
+        val dev = m.filterKeys { it in RenderFx.DEVICE_KEYS }
+        if (dev.isNotEmpty() && dev != Bg2.fx.filterKeys { it in RenderFx.DEVICE_KEYS }) Bg2.setFx(ctx, Bg2.fx.filterKeys { it !in RenderFx.DEVICE_KEYS } + dev)
+    }
+    fun put(k: String, v: Float) = if (forScene && k in RenderFx.DEVICE_KEYS) Bg2.setFx(ctx, Bg2.fx + (k to v)) else set(fx + (k to v))
     @Composable fun slider(p: BgParams.P, mini: String? = null) {
         val v = RenderFx.get(fx, p.key)
         Adjust(p.label, p.fmt(v), { put(p.key, Stepper.next(v, p.step, -1, p.min, p.max)) }, compact = true, fill = (v - p.min) / (p.max - p.min), mini = mini) {
@@ -391,9 +402,21 @@ fun RenderTab() {
         }
     }
     Panel(Modifier.padding(start = 24.dp, bottom = 8.dp).width(256.dp).fillMaxHeight().stageBeside()) {
-    Text("Applies to every background: " + RenderFx.summary(fx), color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 4.dp))
+    Text((if (forScene) "This scene's own look: " else "Every scene: ") + RenderFx.summary(fx), color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 4.dp))
     var confirmLook by remember { mutableStateOf("") }
     LoopColumn(state = FocusMem.list("render:tab"), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        // what the settings below change: the global effects, or a look saved with the scene on the monitor
+        item {
+            fun flip() {
+                // a new scene look starts from the global one, so switching shows no jump
+                if (!forScene && Bg2.sceneLooks[scene] == null) Bg2.setSceneLook(ctx, scene, Bg2.fx)
+                forScene = !forScene
+            }
+            Adjust("Applies to", if (forScene) "this scene · $scene" else "every scene", { flip() }, compact = true, onOk = { flip() }) { flip() }
+        }
+        if (forScene) item { Row_("✕ Remove this scene's own look (use the global one)", false, id = "fx:unscene", onFocus = {}) {
+            Bg2.setSceneLook(ctx, scene, null); forScene = false
+        } }
         // looks: whole sets of effects, the three built-in ones then yours. OK uses one; the sliders below fine-tune it.
         item { Header("Looks") }
         val allLooks = listOf(RenderFx.Look("None", emptyMap())) + RenderFx.BUILT_IN_LOOKS + Bg2.looks
@@ -403,7 +426,7 @@ fun RenderTab() {
                 RenderFx.same(fx, lk.fx), id = "look:" + lk.name, small = true, onFocus = { if (confirmLook != lk.name) confirmLook = "" }) {
                 // pressing the look already in use, if it's one of yours, asks to delete it
                 when {
-                    !RenderFx.same(fx, lk.fx) -> Bg2.setFx(ctx, lk.fx)
+                    !RenderFx.same(fx, lk.fx) -> set(lk.fx)
                     mine && confirmLook == lk.name -> { Bg2.saveLooks(ctx, Bg2.looks.filter { it.name != lk.name }); confirmLook = "" }
                     mine -> confirmLook = lk.name
                 }
@@ -445,7 +468,7 @@ fun RenderTab() {
         item { slider(RenderFx.VIGNETTE) }
         item { slider(RenderFx.GRAIN) }
         item { slider(RenderFx.SHARPEN) }
-        item { Row_("↺ Reset all effects", false, id = "fx:reset", onFocus = {}) { Bg2.setFx(ctx, emptyMap()) } }
+        item { Row_("↺ Reset all effects", false, id = "fx:reset", onFocus = {}) { set(emptyMap()) } }
     }
     }
 }

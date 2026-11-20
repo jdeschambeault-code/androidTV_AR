@@ -309,6 +309,17 @@ object Bg2 {
     /** Render & camera effects, applied to every background (the Render tab). */
     var fx by mutableStateOf(mapOf<String, Float>())
     fun setFx(ctx: Context, m: Map<String, Float>) { fx = m; sp(ctx).edit().putString("fx", JSONObject(m.mapValues { it.value.toDouble() }).toString()).apply() }
+    /**
+     * A scene's own look: render effects saved for that scene by name (built-in ones too), used while it plays instead of
+     * the global ones. Device settings ([RenderFx.DEVICE_KEYS], e.g. antialiasing) always stay global.
+     */
+    var sceneLooks by mutableStateOf(mapOf<String, Map<String, Float>>())
+    fun setSceneLook(ctx: Context, scene: String, m: Map<String, Float>?) {
+        sceneLooks = if (m == null) sceneLooks - scene else sceneLooks + (scene to m.filterKeys { it !in RenderFx.DEVICE_KEYS })
+        sp(ctx).edit().putString("sceneLooks", JSONObject().also { o -> sceneLooks.forEach { (n, f) -> o.put(n, JSONObject(f.mapValues { it.value.toDouble() })) } }.toString()).apply()
+    }
+    /** The effects a scene renders with: its own look over the global device settings, or the global ones. */
+    fun fxFor(scene: String): Map<String, Float> = sceneLooks[scene]?.let { own -> fx.filterKeys { it in RenderFx.DEVICE_KEYS } + own } ?: fx
     /** Your saved render looks (the Render tab), after the built-in ones. */
     var looks by mutableStateOf(listOf<RenderFx.Look>())
     fun saveLooks(ctx: Context, l: List<RenderFx.Look>) {
@@ -330,6 +341,7 @@ object Bg2 {
         runCatching { p.getString("mine", null)?.let { s -> val a = JSONArray(s); mine = (0 until a.length()).map { BgScene.fromJson(a.getJSONObject(it)) } } }
         reactOn = p.getBoolean("react", true)
         runCatching { p.getString("fx", null)?.let { s -> val o = JSONObject(s); fx = o.keys().asSequence().associateWith { o.getDouble(it).toFloat() } } }
+        runCatching { p.getString("sceneLooks", null)?.let { s -> val o = JSONObject(s); sceneLooks = o.keys().asSequence().associateWith { n -> val m = o.getJSONObject(n); m.keys().asSequence().associateWith { m.getDouble(it).toFloat() } } } }
         runCatching { p.getString("looks", null)?.let { s -> val a = JSONArray(s); looks = (0 until a.length()).map { i -> val o = a.getJSONObject(i); val m = o.getJSONObject("fx"); RenderFx.Look(o.getString("name"), m.keys().asSequence().associateWith { m.getDouble(it).toFloat() }) } } }
         quality = p.getInt("quality", 0)
         preview = current

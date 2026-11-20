@@ -198,7 +198,8 @@ class Bg2Renderer(private val ctx: Context, private val sceneOf: () -> BgScene =
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, w, h)
         GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        val fxm = Bg2.fx; val fx = RenderFx.active(fxm) && !Bg2.noFx
+        // the scene's own look if it has one (the Render tab, "this scene"), else the global effects
+        val fxm = Bg2.fxFor(scene.name); val fx = RenderFx.active(fxm) && !Bg2.noFx
         fxSpace = scene.space
         if (monitor && !Bg2.fullPreview) {
             // workspace: result in the monitor area, and each layer's own picture in its tile under it

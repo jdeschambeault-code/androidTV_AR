@@ -288,6 +288,7 @@ class MainActivity : ComponentActivity() {
         peekRequest = intent?.getStringExtra("bgPeek") ?: ""; buildRequest = intent?.getStringExtra("bgBuild") ?: ""
         Bg2.noFx = intent?.getBooleanExtra("noFx", false) == true
         if (intent?.getBooleanExtra("soundTest", false) == true) soundTest()
+        if (intent?.getBooleanExtra("demo", false) == true) Demo.request++   // the demo tour, also when Starshine wasn't running
         // the logo in the theme is only for the start: never let it show through behind the interface
         window.setBackgroundDrawableResource(android.R.color.black)
         setContent {
@@ -305,10 +306,10 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra("bgNew", false)) builderRequest++
         intent.getStringExtra("bgPeek")?.let { peekRequest = it }
         Bg2.noFx = intent.getBooleanExtra("noFx", false)
+        // --ez demo true: start the demo tour (the toolkit's demo.js records it)
+        if (intent.getBooleanExtra("demo", false)) Demo.request++
         // test hook: --es playerTest <package> = choose that player and press ▶ (same as the quick panel)
         intent.getStringExtra("playerTest")?.let { MusicPlayer.choose(this, it); MusicPlayer.play(this) }
-        // test hook: --es browseTest <package> = log what that player's library shows Starshine (tag StarshinePlayer)
-        intent.getStringExtra("browseTest")?.let { MusicPlayer.probeBrowse(this, it) }
         intent.getStringExtra("supportKey")?.let { Support.enter(this, it) }
         intent.getStringExtra("bgBuild")?.let { buildRequest = it }
         intent.getStringExtra("journeyTest")?.let { journeyRequest = it + "|" + intent.getFloatExtra("journeyScale", 1f) + "|" + System.nanoTime() }
@@ -316,6 +317,9 @@ class MainActivity : ComponentActivity() {
     }
     /** First stop for every key from every remote. Compose only delivers keys while something has focus, so this runs before it. */
     override fun dispatchKeyEvent(e: android.view.KeyEvent): Boolean {
+        // the demo tour: any key stops it, and that key (down and up) does nothing else
+        if (Demo.running) { if (e.action == android.view.KeyEvent.ACTION_DOWN) { Demo.stop(); Demo.swallowUp = true }; return true }
+        if (Demo.swallowUp && e.action == android.view.KeyEvent.ACTION_UP) { Demo.swallowUp = false; return true }
         val c = e.keyCode
         if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0)
             android.util.Log.i("StarshineInput", "raw key " + android.view.KeyEvent.keyCodeToString(c) + " scan=" + e.scanCode + " from " + (e.device?.name ?: "injected"))
@@ -519,7 +523,7 @@ private val SETTINGS_CATS = listOf(
     "Screensaver" to "Starshine screensaver",
     "Dock" to "Reset dock order",
     "System" to "Wi-Fi, Bluetooth, display, Amlogic, Android settings",
-    "About & exit" to "Version, exit Starshine"
+    "About & exit" to "Version, demo tour, exit Starshine"
 )
 
 /** True when an OK press would act on something currently slid off screen (only then is it used just to reveal it). */
@@ -705,6 +709,62 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
         (if (parts[0] == "first") Med.journeys.firstOrNull { it.steps.size > 1 } else Med.journeys.firstOrNull { it.name == parts[0] })?.let { j ->
             modals = emptyList(); tab = Tab.Home; delay(500)
             AudioProbe.start(ctx, j.name); Med.paused = false; Med.playing = j.copy(steps = j.steps.map { it.copy(minutes = it.minutes * k) }, loop = false)
+        }
+    }
+    // Settings → About → Demo (or --ez demo true): the guided tour. Each section sets the screen up, then holds; any key
+    // stops it (MainActivity.dispatchKeyEvent), and the scene, look and sound from before come back.
+    LaunchedEffect(Demo.request) {
+        if (Demo.request == 0 || Demo.request == Demo.handled) return@LaunchedEffect   // once per request, not again when the screen is rebuilt
+        Demo.handled = Demo.request
+        val keepScene = Bg2.current; val keepFx = Bg2.fx; val keepSound = Sound.current; val keepTab = tab; val keepSub = Med.subTab
+        fun show(s: BgScene?) { s ?: return; Bg2.setCurrent(ctx, s); Bg2.preview = s; lastBrowsedScene = s.name; bg = BG2_ID; bgOn = true }
+        fun pick(names: List<String>, fallback: List<BgScene>, n: Int) =
+            (names.mapNotNull { Bg2.pristine(it) } + fallback).distinctBy { it.name }.take(n)
+        modals = emptyList(); M5.editing = null; moving = null
+        // a short pause first: the screen is settled, and a recording started with the tour doesn't miss its start
+        delay(2500)
+        Demo.begin()
+        try {
+            run tour@{
+                Demo.SECTIONS.forEachIndexed { i, s ->
+                    if (!Demo.running) return@tour
+                    Demo.section(i)
+                    val ok = when (s.title) {
+                        "Home" -> { tab = Tab.Home; Demo.hold(s.seconds.toFloat()) }
+                        "Flat scenes" -> {
+                            tab = Tab.Home
+                            val l = pick(listOf("Floral mandala", "Hologram", "Water"), BUILT_IN_SCENES.filter { !it.space && it.group != LANDSCAPES }, 3)
+                            l.all { show(it); Demo.hold(s.seconds / l.size.toFloat()) }
+                        }
+                        "3D space" -> {
+                            val l = pick(listOf("Spark portal", "Firefly forest", "Particle fountain"), BUILT_IN_SCENES.filter { it.space }, 3)
+                            l.all { show(it); Demo.hold(s.seconds / l.size.toFloat()) }
+                        }
+                        "Landscapes" -> {
+                            val l = Landscapes.available().take(2)
+                            if (l.isEmpty()) true else l.all { show(it); Demo.hold(s.seconds / l.size.toFloat()) }
+                        }
+                        "Moods" -> {
+                            tab = Tab.Bg; Med.subTab = 1
+                            (Med.stacks.firstOrNull { it.name == "Ocean" } ?: Med.stacks.firstOrNull())?.let { Sound.playStack(ctx, it, 1f) }
+                            Demo.hold(s.seconds.toFloat())
+                        }
+                        "Visual Meditation" -> { tab = Tab.Med; Demo.hold(s.seconds.toFloat()) }
+                        "Quick settings" -> { tab = Tab.Home; openModal("quick"); Demo.hold(s.seconds.toFloat()).also { modals = emptyList() } }
+                        "Render looks" -> {
+                            tab = Tab.Bg; Med.subTab = 2
+                            RenderFx.BUILT_IN_LOOKS.take(2).all { lk -> Bg2.fx = keepFx.filterKeys { it in RenderFx.DEVICE_KEYS } + lk.fx; Demo.hold(s.seconds / 2f) }
+                        }
+                        else -> Demo.hold(s.seconds.toFloat())
+                    }
+                    if (!ok) return@tour
+                }
+            }
+        } finally {
+            // everything back as it was (the look is restored in memory only: the tour never saved one)
+            modals = emptyList(); Bg2.fx = keepFx; show(keepScene); tab = keepTab; Med.subTab = keepSub
+            if (keepSound.isEmpty()) Sound.stop() else if (Sound.current != keepSound) Med.stacks.firstOrNull { it.name == keepSound }?.let { Sound.playStack(ctx, it, 1f) }
+            Demo.end()
         }
     }
     LaunchedEffect(bg) { Bg2.applied = bg == BG2_ID }
@@ -1179,6 +1239,7 @@ fun Launcher(refresh: Int, quickRequest: Int, homeRequest: Int = 0, sceneRequest
                 Text("Back = cancel", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
             }
         }
+        Demo.caption?.let { DemoCaption(it, Modifier.align(Alignment.BottomCenter).zIndex(10f)) }
         if (toast.isNotEmpty()) Text(toast, color = FG, fontSize = 13.sp,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
                 .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(50)).border(1.dp, CYAN.copy(alpha = 0.4f), RoundedCornerShape(50))
@@ -1395,8 +1456,9 @@ fun SettingsCategory(
             else -> {
                 item { Box(f) { Row_("❓ Help  ›", false, onFocus = {}) { onHelp() } } }
                 item { SupportRows() }
+                item { Row_("▶ Demo: a ${Demo.TOTAL / 60}½-minute tour of Starshine (any key stops)", false, onFocus = {}) { Demo.request++ } }
                 item { Row_("⏻  Exit Starshine (Home goes to Google TV until you open Starshine again)", false, onFocus = {}) { onExit() } }
-                item { Text("Starshine 2.0 · made for Rokid Station", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
+                item { Text("Starshine " + BuildConfig.VERSION_NAME + " · made for Rokid Station", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(8.dp)) }
             }
         }
     }
@@ -1621,8 +1683,6 @@ fun launch(ctx: Context, id: String, browser: String = "") {
         }
         else -> pm.getLeanbackLaunchIntentForPackage(id) ?: pm.getLaunchIntentForPackage(id) ?: return
     }
-    // which code opened it (tag StarshineLaunch): an app coming back to the front by itself is otherwise impossible to trace
-    android.util.Log.i("StarshineLaunch", "open $id from " + Throwable().stackTrace.drop(1).take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" })
     runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 

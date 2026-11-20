@@ -33,6 +33,7 @@ module.exports = {
       { icon: "fa-solid fa-film", text: "Send Video to Pod", href: "sendvideo.js" },
       { icon: "fa-solid fa-photo-film", text: "Fix VLC Media Scan", href: "vlcfix.js" },
       { icon: "fa-solid fa-mountain-sun", text: "Copy Landscape Backgrounds", href: "landscapes.js" },
+      { icon: "fa-solid fa-clapperboard", text: "Record the Demo Tour", href: "demo.js" },
       { icon: "fa-solid fa-store", text: "Install Recommended Apps", href: "apps.js" },
       { icon: "fa-solid fa-stethoscope", text: "Jellyfin Net Check", href: "netcheck.js" },
       { icon: "fa-solid fa-file-lines", text: "Jellyfin App Log", href: "jflog.js" },

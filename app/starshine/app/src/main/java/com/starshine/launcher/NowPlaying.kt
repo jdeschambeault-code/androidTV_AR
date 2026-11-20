@@ -94,6 +94,8 @@ object MusicPlayer {
         pkg = inst[((i + d) % inst.size + inst.size) % inst.size].first; sp(ctx).edit().putString("playerPkg", pkg).apply()
     }
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    /** Players that stop when they leave the screen (tested: the TV YouTube Music hands playback to YouTube for TV, which pauses in the background). */
+    private val SCREEN_ONLY = setOf("com.google.android.youtube.tvmusic", "com.google.android.youtube.tv")
     private var browser: android.media.browse.MediaBrowser? = null
     private fun toast(ctx: Context, s: String) = android.widget.Toast.makeText(ctx, s, android.widget.Toast.LENGTH_LONG).show()
 
@@ -110,7 +112,7 @@ object MusicPlayer {
         val svc = ctx.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(p), 0)
             .firstOrNull()?.serviceInfo?.let { android.content.ComponentName(it.packageName, it.name) }
         log("play $p: browser service " + (svc?.className ?: "none"))
-        if (svc == null) { openThenPlay(ctx, p); return }
+        if (svc == null) { buttonThenOpen(ctx, p); return }
         browser?.disconnect()
         var done = false
         val b = android.media.browse.MediaBrowser(ctx, svc, object : android.media.browse.MediaBrowser.ConnectionCallback() {
@@ -118,57 +120,54 @@ object MusicPlayer {
                 done = true; log("play $p: browser connected")
                 val b = browser ?: return
                 runCatching { android.media.session.MediaController(ctx, b.sessionToken).transportControls.play() }
-                    .onFailure { openThenPlay(ctx, p) }
+                    .onFailure { buttonThenOpen(ctx, p) }
             }
-            override fun onConnectionFailed() { log("play $p: browser refused"); if (!done) { done = true; openThenPlay(ctx, p) } }
+            override fun onConnectionFailed() { log("play $p: browser refused"); if (!done) { done = true; buttonThenOpen(ctx, p) } }
             override fun onConnectionSuspended() {}
         }, null)
         browser = b
-        runCatching { b.connect() }.onFailure { openThenPlay(ctx, p) }
+        runCatching { b.connect() }.onFailure { buttonThenOpen(ctx, p) }
         // some players only accept their own clients: no answer in 3 s means the fallback
-        main.postDelayed({ if (!done) { done = true; b.disconnect(); openThenPlay(ctx, p) } }, 3000)
+        main.postDelayed({ if (!done) { done = true; b.disconnect(); buttonThenOpen(ctx, p) } }, 3000)
     }
 
+
     /**
-     * Test: can Starshine read this player's library (playlists, mixes) itself? Connects to its media browser service and logs
-     * the top level and one level under each folder (tag StarshinePlayer). Many players only answer approved apps.
+     * Before opening the app full screen: press "play" on it the way a headset's button does (its media button receiver).
+     * Players that refuse Starshine's remote control (YouTube Music) usually still start in the background this way. Only
+     * when nothing is playing 3 s later does the app open.
      */
-    fun probeBrowse(ctx: Context, p: String) {
-        val svc = ctx.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(p), 0)
-            .firstOrNull()?.serviceInfo?.let { android.content.ComponentName(it.packageName, it.name) }
-        log("browse $p: service " + (svc?.className ?: "none")); if (svc == null) return
-        var b: android.media.browse.MediaBrowser? = null
-        fun list(id: String, depth: Int) {
-            b?.subscribe(id, object : android.media.browse.MediaBrowser.SubscriptionCallback() {
-                override fun onChildrenLoaded(parentId: String, children: MutableList<android.media.browse.MediaBrowser.MediaItem>) {
-                    log("browse $p: '$parentId' has ${children.size} items")
-                    children.take(12).forEach { c ->
-                        log("browse $p:   " + "  ".repeat(depth) + (if (c.isBrowsable) "[folder] " else "") + (if (c.isPlayable) "[play] " else "") + c.description.title)
-                        if (depth == 0 && c.isBrowsable) list(c.mediaId ?: return@forEach, 1)
-                    }
-                }
-                override fun onError(parentId: String) { log("browse $p: '$parentId' refused") }
-            })
+    private fun buttonThenOpen(ctx: Context, p: String) {
+        val rx = ctx.packageManager.queryBroadcastReceivers(android.content.Intent(android.content.Intent.ACTION_MEDIA_BUTTON).setPackage(p), 0).firstOrNull()?.activityInfo
+        if (rx == null) { log("play $p: no media button receiver"); openThenPlay(ctx, p); return }
+        log("play $p: media button")
+        fun press(action: Int) = runCatching {
+            ctx.sendBroadcast(android.content.Intent(android.content.Intent.ACTION_MEDIA_BUTTON).setComponent(android.content.ComponentName(rx.packageName, rx.name))
+                .putExtra(android.content.Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(action, android.view.KeyEvent.KEYCODE_MEDIA_PLAY)))
         }
-        b = android.media.browse.MediaBrowser(ctx, svc, object : android.media.browse.MediaBrowser.ConnectionCallback() {
-            override fun onConnected() { log("browse $p: connected, root '${b?.root}'"); list(b?.root ?: return, 0) }
-            override fun onConnectionFailed() { log("browse $p: connection refused") }
-        }, null)
-        runCatching { b.connect() }.onFailure { log("browse $p: " + it.message) }
-        main.postDelayed({ log("browse $p: done"); runCatching { b.disconnect() } }, 15000)
+        press(android.view.KeyEvent.ACTION_DOWN); press(android.view.KeyEvent.ACTION_UP)
+        main.postDelayed({
+            val playing = NowPlaying.controllers(ctx).any { owns(p, it.packageName) && it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            log("play $p: after the button, playing=$playing")
+            if (!playing) openThenPlay(ctx, p)
+        }, 3000)
     }
 
     /** The fallback: the app opens, play is pressed once its session exists, then Starshine comes back in front. */
     private fun openThenPlay(ctx: Context, p: String) {
         val i = launchIntent(ctx, p) ?: return
-        log("play $p: opening the app from " + Throwable().stackTrace.drop(1).take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }); toast(ctx, "Starting ${name(p)}…")
+        log("play $p: opening the app"); toast(ctx, "Starting ${name(p)}…")
         runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         var tries = 0
         val poll = object : Runnable {
             override fun run() {
                 val c = NowPlaying.controllers(ctx).firstOrNull { owns(p, it.packageName) }
                 if (c != null) {
-                    log("play $p: session appeared, play, back to Starshine"); runCatching { c.transportControls.play() }
+                    runCatching { c.transportControls.play() }
+                    // players that stop as soon as they leave the screen (the TV YouTube apps) are left in front: going
+                    // back to Starshine would silence them
+                    if (p in SCREEN_ONLY) { log("play $p: playing; it only plays on screen, so it stays in front"); toast(ctx, "${name(p)} only plays while it's on screen. The phone version (with Premium) can play in the background"); return }
+                    log("play $p: session appeared, play, back to Starshine")
                     main.postDelayed({
                         ctx.startActivity(android.content.Intent(ctx, MainActivity::class.java)
                             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))

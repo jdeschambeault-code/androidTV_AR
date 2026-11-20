@@ -41,6 +41,8 @@ module.exports = {
         `${adb} shell appops set ${PKG} MANAGE_EXTERNAL_STORAGE allow`,
         `${adb} shell appops set ${PKG} GET_USAGE_STATS allow`,
         `${adb} shell appops set ${PKG} WRITE_SETTINGS allow`,
+        // "display over other apps": without it Android stops Starshine coming back in front after ▶ starts a music app
+        `${adb} shell appops set ${PKG} SYSTEM_ALERT_WINDOW allow`,
         `${adb} shell cmd notification allow_listener ${PKG}/${PKG}.MediaListener`,
         // compile ahead of time, so sound and menus run at full speed from the first launch
         `${adb} shell cmd package compile -m speed -f ${PKG}`,

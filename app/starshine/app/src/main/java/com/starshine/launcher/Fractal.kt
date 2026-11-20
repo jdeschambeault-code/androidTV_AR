@@ -272,6 +272,8 @@ object RenderFx {
     val SAT = BgParams.P("fxSat", "Saturation", 1f, 0.05f, 0f, 2.5f, ::pct)
     val TEMP = BgParams.P("temp", "Temperature", 0f, 0.05f, -1f, 1f, { if (it > 0.01f) "warm " + pct(it) else if (it < -0.01f) "cool " + pct(-it) else "neutral" })
     val GAMMA = BgParams.P("gamma", "Gamma", 1f, 0.05f, 0.4f, 2.5f, ::num)
+    /** Settings of the device, not of a scene's look: always global. */
+    val DEVICE_KEYS = setOf("aa")
     /** Smooths jagged edges (FXAA: one cheap pass over the finished picture), mostly seen on the lines of geometry. */
     val AA = BgParams.P("aa", "Antialiasing", 0f, 0.25f, 0f, 1f, { if (it < 0.01f) "off" else pct(it) })
     val ALL = listOf(BLOOM, THRESH, GLARE, FLARE, FLX, FLY, GHOSTS, MOTION, DOF, FOCX, FOCY, FOCR, CHROMA, DISTORT, VIGNETTE, GRAIN, SHARPEN, EXPOSURE, CONTRAST, SAT, TEMP, GAMMA, AA)

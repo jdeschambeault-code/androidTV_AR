@@ -10,7 +10,7 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
 2. **Publish the repo and release:** run `! /c/pinokio/bin/miniforge/Scripts/gh.exe auth login`, then make the repo public and create release v2.7.0 with `apks/release/starshine-2.7.0.apk`. That APK was built with `STARSHINE_PUBLIC=1`, so it carries no personal tiles or addresses.
    - Rebuild it first if code changed since. The release notes should mention the LeanKeyboard tip for the M5.
 3. **Landscape photos for public users:** they aren't in the repo (`recordings/` is ignored). Decide whether to commit them, since they're openly licensed (credits in ATTRIBUTION.md), or attach them to the release as a separate zip.
-4. **TV Streamer:** install the new build once it's online. It wasn't reachable at its usual address today.
+4. (DONE 2026-11-20) **TV Streamer:** now at 192.168.0.142, running the latest build.
 5. **Render settings, global vs per scene** (BUILT and tested on the Streamer 2026-11-20): device settings (antialiasing, resolution, FPS) stay global; creative effects (bloom, grain, colour grade…) can be saved with a scene as its own "look" that overrides the global one while it plays.
 6. **Video landscape loops:** after downloading the clips into `recordings/bg-review/video/raw/`, run `makeloops.sh`, push them with **Landscape backgrounds**, and add video Landscape scenes.
 7. **Demo in Settings** (BUILT 2026-11-20): Settings → About & exit → Demo; toolkit "Record the Demo Tour" (demo.js, `-- --serial=` for another device). Recorded on the Streamer: recordings/demo/. Landscapes section is skipped when the photos are not on the device.

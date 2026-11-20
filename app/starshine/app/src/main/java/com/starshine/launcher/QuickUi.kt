@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -446,29 +447,114 @@ fun QuickPanel(
  * left edge of the Home screen.
  */
 @Composable
-fun PlayerBlock(np: Playing?, modifier: Modifier = Modifier, vertical: Boolean = false, idp: String = "q") {
+fun PlayerBlock(np: Playing?, modifier: Modifier = Modifier, vertical: Boolean = false, idp: String = "q", wide: Boolean = false) {
     val ctx = LocalContext.current
-    // buttons keep the panel's rule: 10 bigger than their icon (26 around 16 in the small block, 40 around 30 on the edge card)
-    val b = if (vertical) Q_TILE else 26
+    // every card has the same parts: the track's picture, ⏮ ⏯ ⏭, and ☰ to choose what plays (a drop-down)
+    // buttons keep the panel's rule: 10 bigger than their icon (24 in the small block, 40 on the tall card, 30 on the wide one)
+    val b = if (vertical) Q_TILE else if (wide) 30 else 24
     val name = np?.let { it.artist.ifEmpty { MusicPlayer.name(it.pkg) } } ?: MusicPlayer.name()
-    Column(modifier.background(BLOCK_BG, RoundedCornerShape(14.dp)).padding(if (vertical) 10.dp else 4.dp),
-        verticalArrangement = Arrangement.spacedBy(if (vertical) 8.dp else 2.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (vertical && np?.art != null) androidx.compose.foundation.Image(np.art.asImageBitmap(), null,
-            Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-        Text(np?.title ?: "Not playing", color = FG, fontSize = if (vertical) 12.sp else 9.sp, fontWeight = FontWeight.SemiBold, maxLines = if (vertical) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text(name, color = DIM, fontSize = if (vertical) 10.sp else 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        @Composable fun buttons() {
-            if (np != null) {
-                SquareTile("$idp:mprev", "⏮", "Previous · ${np.title}", false, size = b) { NowPlaying.previous(np) }
-                SquareTile("$idp:mplay", if (np.playing) "❚❚" else "▶", (if (np.playing) "Pause · " else "Play · ") + np.title, np.playing, size = b) { NowPlaying.toggle(np) }
-                SquareTile("$idp:mnext", "⏭", "Next · ${np.title}", false, size = b) { NowPlaying.next(np) }
-            } else {
-                SquareTile("$idp:mplay", "▶", "Play · ${MusicPlayer.name()}", false, size = b) { MusicPlayer.play(ctx) }
-                SquareTile("$idp:mswitch", "⇄", "Switch player · now ${MusicPlayer.name()}", false, size = b) { MusicPlayer.cycle(ctx) }
+    var menu by remember { mutableStateOf(false) }
+    @Composable fun art(size: Int) {
+        Box(Modifier.size(size.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF0B1520)), contentAlignment = Alignment.Center) {
+            if (np?.art != null) androidx.compose.foundation.Image(np.art.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            else Text("♪", color = DIM, fontSize = (size * 0.45f).sp)
+        }
+    }
+    @Composable fun buttons() {
+        if (np != null) {
+            SquareTile("$idp:mprev", "⏮", "Back · ${np.title}", false, size = b) { NowPlaying.previous(np) }
+            SquareTile("$idp:mplay", if (np.playing) "❚❚" else "▶", (if (np.playing) "Pause · " else "Play · ") + np.title, np.playing, size = b) { NowPlaying.toggle(np) }
+            SquareTile("$idp:mnext", "⏭", "Forward · ${np.title}", false, size = b) { NowPlaying.next(np) }
+        } else {
+            SquareTile("$idp:mplay", "▶", "Play · ${MusicPlayer.name()}", false, size = b) { MusicPlayer.play(ctx) }
+            SquareTile("$idp:mswitch", "⇄", "Switch player · now ${MusicPlayer.name()}", false, size = b) { MusicPlayer.cycle(ctx) }
+        }
+    }
+    @Composable fun chooser() {
+        Box {
+            SquareTile("$idp:mlist", "☰", "Choose a playlist or track", menu, size = b) { menu = true }
+            if (menu) PlayerChoices(np, onClose = { menu = false })
+        }
+    }
+    val shape = RoundedCornerShape(14.dp)
+    when {
+        // the tall card on the left edge: picture on top, then the name, then the buttons in a column
+        vertical -> Column(modifier.background(BLOCK_BG, shape).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            art(72)
+            Text(np?.title ?: "Not playing", color = FG, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            Text(name, color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) { buttons(); chooser() }
+        }
+        // the Home screen's Now Playing card: picture, name, buttons in one row
+        wide -> Row(modifier.background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp)).border(1.dp, CYAN.copy(alpha = 0.2f), RoundedCornerShape(16.dp)).padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            art(44)
+            Column(Modifier.padding(horizontal = 8.dp).width(200.dp)) {
+                Text(np?.title ?: "Not playing", color = FG, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(name, color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            buttons(); chooser()
+        }
+        // the square block in Quick settings: the picture fills it, dimmed under the name, buttons along the bottom
+        else -> Box(modifier.clip(shape).background(BLOCK_BG)) {
+            if (np?.art != null) androidx.compose.foundation.Image(np.art.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop, alpha = 0.35f)
+            Column(Modifier.fillMaxSize().padding(4.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
+                        Text(np?.title ?: "Not playing", color = FG, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(name, color = DIM, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    chooser()
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) { buttons() }
             }
         }
-        if (vertical) Column(verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) { buttons() }
-        else Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) { buttons() }
+    }
+}
+
+/**
+ * ☰'s drop-down: the player's own playlists and folders when it shares them (OK opens a folder, OK on a track plays it),
+ * otherwise what's in its queue (OK jumps there), otherwise an offer to open the app and choose there. Back closes.
+ */
+@Composable
+private fun PlayerChoices(np: Playing?, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val pkg = np?.pkg ?: MusicPlayer.pkg
+    var path by remember { mutableStateOf(listOf<Choice>()) }   // folders opened, for Back and the title
+    var items by remember { mutableStateOf<List<Choice>?>(null) }
+    var source by remember { mutableStateOf("") }
+    LaunchedEffect(path) {
+        items = null
+        val lib = Choices.library(ctx, pkg, path.lastOrNull()?.id)
+        if (lib != null) { source = "Library"; items = lib }
+        else { source = "Queue"; items = Choices.queue(np?.controller) }
+    }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(items) { if (items != null) { delay(60); runCatching { first.requestFocus() } } }
+    androidx.compose.material3.DropdownMenu(expanded = true, onDismissRequest = { if (path.isNotEmpty()) path = path.dropLast(1) else onClose() },
+        modifier = Modifier.background(Color(0xF00B1520)).width(260.dp).heightIn(max = 320.dp)) {
+        Text((path.lastOrNull()?.label ?: (MusicPlayer.name(pkg) + " · " + source.lowercase())).uppercase(), color = CYAN, fontSize = 9.sp,
+            letterSpacing = 1.2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        val list = items
+        @Composable fun row(text: String, sub: String, i: Int, onPick: () -> Unit) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Column { Text(text, color = FG, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (sub.isNotEmpty()) Text(sub, color = DIM, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
+                onClick = onPick, modifier = if (i == 0) Modifier.focusRequester(first) else Modifier)
+        }
+        when {
+            list == null -> Text("Loading…", color = DIM, fontSize = 10.sp, modifier = Modifier.padding(12.dp))
+            list.isEmpty() -> row("Choose in ${MusicPlayer.name(pkg)}  ›", if (source == "Queue") "it doesn't share its playlists" else "nothing here", 0) {
+                onClose(); launch(ctx, pkg)
+            }
+            else -> {
+                list.forEachIndexed { i, ch -> row((if (ch.folder) "▸ " else "") + ch.label, ch.sub, i) {
+                    if (ch.folder) path = path + ch else { Choices.play(ctx, pkg, np?.controller, ch); onClose() }
+                } }
+                row("Choose in ${MusicPlayer.name(pkg)}  ›", "", list.size) { onClose(); launch(ctx, pkg) }
+            }
+        }
     }
 }
 

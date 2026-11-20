@@ -10,6 +10,7 @@ import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlin.coroutines.resume
 
 /** Empty listener: its only job is to let Starshine read active media sessions (granted by build.js). */
 class MediaListener : NotificationListenerService()
@@ -176,5 +177,77 @@ object MusicPlayer {
             }
         }
         main.postDelayed(poll, 1500)
+    }
+}
+
+/** One entry of a player card's drop-down: a folder or playlist to open, a track to play, or a track in the queue. */
+data class Choice(val label: String, val sub: String, val id: String, val folder: Boolean, val queueId: Long = -1L)
+
+/**
+ * What a player card's drop-down offers, best first:
+ *  1. the player's own library (playlists, mixes), when it shares it with Starshine (YouTube Music doesn't, tested);
+ *  2. otherwise what's queued in its session (most players publish their queue);
+ *  3. otherwise nothing, and the card offers to open the app to choose there.
+ */
+object Choices {
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val browsers = HashMap<String, android.media.browse.MediaBrowser>()
+    /** Players that refused this session: not asked again, so the drop-down opens at once. */
+    private val refused = HashSet<String>()
+    private fun log(s: String) = android.util.Log.i("StarshinePlayer", s)
+
+    private suspend fun browser(ctx: Context, pkg: String): android.media.browse.MediaBrowser? {
+        browsers[pkg]?.takeIf { it.isConnected }?.let { return it }
+        if (pkg in refused) return null
+        val svc = ctx.packageManager.queryIntentServices(android.content.Intent("android.media.browse.MediaBrowserService").setPackage(pkg), 0)
+            .firstOrNull()?.serviceInfo?.let { ComponentName(it.packageName, it.name) } ?: run { refused += pkg; return null }
+        val b = kotlinx.coroutines.withTimeoutOrNull(3000) {
+            kotlinx.coroutines.suspendCancellableCoroutine<android.media.browse.MediaBrowser?> { cont ->
+                var mb: android.media.browse.MediaBrowser? = null
+                main.post {
+                    mb = android.media.browse.MediaBrowser(ctx, svc, object : android.media.browse.MediaBrowser.ConnectionCallback() {
+                        override fun onConnected() { if (cont.isActive) cont.resume(mb) }
+                        override fun onConnectionFailed() { if (cont.isActive) cont.resume(null) }
+                    }, null).also { runCatching { it.connect() }.onFailure { _ -> if (cont.isActive) cont.resume(null) } }
+                }
+                cont.invokeOnCancellation { main.post { runCatching { mb?.disconnect() } } }
+            }
+        }
+        if (b == null) { refused += pkg; log("choices $pkg: library not shared"); return null }
+        browsers[pkg] = b; return b
+    }
+
+    /** The library under [parent] (null = its top level), or null when the player doesn't share it. */
+    suspend fun library(ctx: Context, pkg: String, parent: String?): List<Choice>? {
+        val b = browser(ctx, pkg) ?: return null
+        val id = parent ?: b.root
+        return kotlinx.coroutines.withTimeoutOrNull(4000) {
+            kotlinx.coroutines.suspendCancellableCoroutine<List<Choice>?> { cont ->
+                main.post {
+                    b.subscribe(id, object : android.media.browse.MediaBrowser.SubscriptionCallback() {
+                        override fun onChildrenLoaded(parentId: String, children: MutableList<android.media.browse.MediaBrowser.MediaItem>) {
+                            runCatching { b.unsubscribe(id) }
+                            if (cont.isActive) cont.resume(children.mapNotNull { c ->
+                                val mid = c.mediaId ?: return@mapNotNull null
+                                Choice(c.description.title?.toString() ?: "?", c.description.subtitle?.toString() ?: "", mid, c.isBrowsable && !c.isPlayable)
+                            })
+                        }
+                        override fun onError(parentId: String) { if (cont.isActive) cont.resume(null) }
+                    })
+                }
+            }
+        }
+    }
+
+    /** What's queued in the player's session. */
+    fun queue(c: MediaController?): List<Choice> = c?.queue.orEmpty().map { q ->
+        Choice(q.description.title?.toString() ?: "?", q.description.subtitle?.toString() ?: "", "", false, q.queueId)
+    }
+
+    /** Plays a choice: jumps in the queue, or asks the player to play that library item. */
+    fun play(ctx: Context, pkg: String, c: MediaController?, ch: Choice) {
+        if (ch.queueId >= 0) { runCatching { c?.transportControls?.skipToQueueItem(ch.queueId) }; return }
+        val ctl = c ?: browsers[pkg]?.takeIf { it.isConnected }?.let { MediaController(ctx, it.sessionToken) }
+        runCatching { ctl?.transportControls?.playFromMediaId(ch.id, null) }.onFailure { log("choices $pkg: play failed " + it.message) }
     }
 }

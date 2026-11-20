@@ -14,7 +14,7 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
 5. **Render settings, global vs per scene** (agreed approach, not built yet): device settings (antialiasing, resolution, FPS) stay global; creative effects (bloom, grain, colour grade…) can be saved with a scene as its own "look" that overrides the global one while it plays.
 6. **Video landscape loops:** after downloading the clips into `recordings/bg-review/video/raw/`, run `makeloops.sh`, push them with **Landscape backgrounds**, and add video Landscape scenes.
 7. **Demo in Settings:** recordable, 15–30 s per section (2D/3D scenes, moods, Meditation builder, other features). Not started.
-8. **Same controls on every player card** (Quick settings player block, left-edge card, Home Now Playing card):
+8. **Same controls on every player card** (BUILT 2026-11-20, see "To test"; installed on the TV Streamer, not yet on the pod) (Quick settings player block, left-edge card, Home Now Playing card):
    - Album art of the current track, ⏮ Back, ⏯ Play/Pause, ⏭ Forward.
    - A drop-down to choose what plays, filled in this order of preference:
      1. The player's library (playlists), where it agrees to share it. YouTube Music refuses Starshine (tested 2026-11-19); Spotify and others still to test with `--es browseTest <package>`.
@@ -40,6 +40,7 @@ Last updated: 2026-11-19 (version 2.7.0, installed on the pod at 19:15).
 | CT 102 tile | Opens the Bliss OS VM's screen (noVNC, scaled to fit) after logging in once through the C64 tile. |
 | M5 typing | With LeanKeyboard active, a mouse click on a letter types it, and D-pad + OK still types the highlighted key. |
 | Songsterr app | Opens; Restore purchase / sign in brings Premium back. The dock tile now opens the app instead of the website. |
+| Player cards (all three) | Quick settings block, left-edge card and Home Now Playing card each show the track's picture, ⏮ ⏯ ⏭ and ☰. ☰ drops down a list: a player's playlists if it shares them (OK opens a folder, OK on a track plays it), otherwise its queue (OK jumps to that track), always ending with "Choose in <app>". Back closes the list or goes up a folder. |
 | YouTube Music (phone app) | Plays in the background with Premium; the Quick settings player and Now Playing card control it. |
 
 ## Done today

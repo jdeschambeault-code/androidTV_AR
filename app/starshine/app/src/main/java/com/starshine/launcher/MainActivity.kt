@@ -1817,18 +1817,8 @@ fun NowPlayingCard() {
     val ctx = LocalContext.current
     val p by produceState<Playing?>(null) { while (true) { value = runCatching { NowPlaying.current(ctx) }.getOrNull(); delay(2_000) } }
     val np = p ?: return
-    Row(Modifier.padding(bottom = 12.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
-        .border(1.dp, CYAN.copy(alpha = 0.2f), RoundedCornerShape(16.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (np.art != null) Image(np.art.asImageBitmap(), null, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-        Column(Modifier.padding(horizontal = 10.dp).width(220.dp)) {
-            Text(np.title, color = FG, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(np.artist.ifEmpty { np.pkg }, color = DIM, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        SmallButton(if (np.playing) "❚❚" else "▶") { NowPlaying.toggle(np) }
-        SmallButton("⏭") { NowPlaying.next(np) }
-        // YouTube Music: switch account inside the app (Android gives other apps no way to do it directly)
-        if (np.pkg == YTMUSIC_PKG) SmallButton("👤") { launch(ctx, YTMUSIC_PKG) }
-    }
+    // the same card as Quick settings and the left edge: picture, ⏮ ⏯ ⏭ and ☰ (choose a playlist or track)
+    PlayerBlock(np, Modifier.padding(bottom = 12.dp), idp = "home", wide = true)
 }
 
 @Composable
